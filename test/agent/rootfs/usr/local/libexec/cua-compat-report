@@ -5,7 +5,7 @@ set -u
 runtime_dir=/run/user/1000/isotope-cua-compat
 stage_dir=/run/isotope-cua-compat-report
 tar_path=/run/isotope-cua-compat.tar
-artifact_device=/dev/disk/by-id/virtio-isotopeagentartifacts
+artifact_device=/dev/disk/by-id/virtio-isotopeartifacts
 
 exec 3>/dev/ttyS0 || exit 1
 exec >/dev/null 2>&1
