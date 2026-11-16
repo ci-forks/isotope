@@ -206,3 +206,7 @@ should also read [AGENTS.md](AGENTS.md): every desktop gets every feature.
 [i3](https://i3wm.org/) ·
 [XLibre](https://www.xlibre.net/) ·
 [Flathub](https://flathub.org/)
+
+## License
+
+Isotope is licensed under the [Apache License 2.0](LICENSE).
