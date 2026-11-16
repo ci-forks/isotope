@@ -473,7 +473,7 @@ FROM toolchain AS gperf
 ARG GPERF_VERSION=3.1
 RUN mkdir -p /gperf
 WORKDIR /build
-RUN curl --retry 5 --retry-delay 3 --retry-all-errors -L https://ftp.gnu.org/pub/gnu/gperf/gperf-${GPERF_VERSION}.tar.gz -o gperf.tar.gz && tar -xzf gperf.tar.gz && rm gperf.tar.gz && mv gperf-* gperf-src
+RUN for m in https://mirrors.kernel.org/gnu https://ftpmirror.gnu.org https://ftp.gnu.org/gnu; do curl -fL --connect-timeout 30 --retry 3 --retry-delay 3 --retry-all-errors "$m/gperf/gperf-${GPERF_VERSION}.tar.gz" -o gperf.tar.gz && break; rm -f gperf.tar.gz; done && test -s gperf.tar.gz && tar -xzf gperf.tar.gz && rm gperf.tar.gz && mv gperf-* gperf-src
 WORKDIR /build/gperf-src
 # gperf 3.1 ships an ancient K&R getopt.c; the toolchain GCC defaults to C23
 # where `()` means `(void)`, so force the older language semantics.
@@ -1162,7 +1162,7 @@ FROM toolchain AS ncurses
 ARG NCURSES_VERSION=6.5
 RUN mkdir -p /ncurses
 WORKDIR /build
-RUN curl --retry 5 --retry-delay 3 --retry-all-errors -L https://ftp.gnu.org/gnu/ncurses/ncurses-${NCURSES_VERSION}.tar.gz -o ncurses.tar.gz && tar -xzf ncurses.tar.gz && rm ncurses.tar.gz && mv ncurses-* ncurses-src
+RUN for m in https://mirrors.kernel.org/gnu https://ftpmirror.gnu.org https://ftp.gnu.org/gnu; do curl -fL --connect-timeout 30 --retry 3 --retry-delay 3 --retry-all-errors "$m/ncurses/ncurses-${NCURSES_VERSION}.tar.gz" -o ncurses.tar.gz && break; rm -f ncurses.tar.gz; done && test -s ncurses.tar.gz && tar -xzf ncurses.tar.gz && rm ncurses.tar.gz && mv ncurses-* ncurses-src
 WORKDIR /build/ncurses-src
 RUN ./configure ${COMMON_CONFIGURE_ARGS} --with-shared --enable-termcap --disable-widec \
     --without-debug --without-ada --without-cxx --without-cxx-binding \
@@ -2968,7 +2968,7 @@ RUN make -f Makefile.sharedlibrary INSTALL_PREFIX=/usr CC=cc && \
 FROM toolchain AS gettext-tools
 ARG GETTEXT_VERSION=0.22.5
 WORKDIR /build
-RUN curl --retry-all-errors -fL --retry 5 https://ftp.gnu.org/pub/gnu/gettext/gettext-${GETTEXT_VERSION}.tar.xz -o g.tar.xz && tar -xf g.tar.xz && \
+RUN for m in https://mirrors.kernel.org/gnu https://ftpmirror.gnu.org https://ftp.gnu.org/gnu; do curl -fL --connect-timeout 30 --retry 3 --retry-delay 3 --retry-all-errors "$m/gettext/gettext-${GETTEXT_VERSION}.tar.xz" -o g.tar.xz && break; rm -f g.tar.xz; done && test -s g.tar.xz && tar -xf g.tar.xz && \
     cd gettext-${GETTEXT_VERSION} && \
     ./configure --prefix=/usr --disable-java --disable-csharp --disable-libasprintf \
       --disable-openmp --disable-acl --disable-curses --without-emacs --without-git \
@@ -3563,7 +3563,7 @@ RUN cmake -B build -G Ninja -DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_INSTALL_LIBDIR=l
 FROM toolchain AS gmp
 ARG GMP_VERSION=6.3.0
 WORKDIR /build
-RUN curl --retry-all-errors -fL --retry 5 https://ftp.gnu.org/gnu/gmp/gmp-${GMP_VERSION}.tar.xz -o g.tar.xz && tar -xf g.tar.xz && mv gmp-* src
+RUN for m in https://mirrors.kernel.org/gnu https://ftpmirror.gnu.org https://ftp.gnu.org/gnu; do curl -fL --connect-timeout 30 --retry 3 --retry-delay 3 --retry-all-errors "$m/gmp/gmp-${GMP_VERSION}.tar.xz" -o g.tar.xz && break; rm -f g.tar.xz; done && test -s g.tar.xz && tar -xf g.tar.xz && mv gmp-* src
 WORKDIR /build/src
 # GMP's configure probes predate C23, where `void g()` means no arguments.
 RUN CFLAGS="-O2 -std=gnu17" ./configure --prefix=/usr --enable-cxx --enable-shared --disable-static && \
@@ -3573,7 +3573,7 @@ FROM toolchain AS mpfr
 COPY --from=gmp /gmp /
 ARG MPFR_VERSION=4.2.2
 WORKDIR /build
-RUN curl --retry-all-errors -fL --retry 5 https://ftp.gnu.org/gnu/mpfr/mpfr-${MPFR_VERSION}.tar.xz -o m.tar.xz && tar -xf m.tar.xz && mv mpfr-* src
+RUN for m in https://mirrors.kernel.org/gnu https://ftpmirror.gnu.org https://ftp.gnu.org/gnu; do curl -fL --connect-timeout 30 --retry 3 --retry-delay 3 --retry-all-errors "$m/mpfr/mpfr-${MPFR_VERSION}.tar.xz" -o m.tar.xz && break; rm -f m.tar.xz; done && test -s m.tar.xz && tar -xf m.tar.xz && mv mpfr-* src
 WORKDIR /build/src
 # Not COMMON_CONFIGURE_ARGS: MPFR rejects --enable-lto for a shared library.
 RUN ./configure --prefix=/usr --enable-shared --disable-static && make -j"$(nproc)" && make DESTDIR=/mpfr install
