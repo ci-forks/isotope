@@ -1833,10 +1833,18 @@ log "Extracted kernel ($(stat -c%s "$KERNEL") B) + initrd ($(stat -c%s "$INITRD"
 # 3. Create the 256 MiB raw artifact disk
 # ---------------------------------------------------------------------------
 # CROSS-TASK CONTRACT: the Task 4 reporter (cua-compat-report) writes its tar to
-# /dev/disk/by-id/virtio-isotopeagentartifacts. That by-id path only exists in
+# /dev/disk/by-id/virtio-isotopeartifacts. That by-id path only exists in
 # the guest when this disk is attached as virtio-blk with serial EXACTLY
-# "isotopeagentartifacts". Do not change this serial.
-ARTIFACTS_SERIAL="isotopeagentartifacts"
+# "isotopeartifacts". Do not change this serial.
+#
+# virtio-blk gives the guest at most 20 bytes of serial (VIRTIO_BLK_ID_BYTES).
+# A longer serial is cut short, the by-id name does not match, and the reporter
+# cannot write its tar: the gate then fails with no guest artifacts at all.
+ARTIFACTS_SERIAL="isotopeartifacts"
+if [ "${#ARTIFACTS_SERIAL}" -gt 20 ]; then
+  err "artifact disk serial '$ARTIFACTS_SERIAL' is longer than the 20 bytes virtio-blk keeps"
+  exit 14
+fi
 log "Creating 256 MiB artifact disk ($ARTDISK, serial=$ARTIFACTS_SERIAL)"
 qemu-img create -f raw "$ARTDISK" 256M >/dev/null \
   || { err "failed to create artifact disk"; exit 14; }
