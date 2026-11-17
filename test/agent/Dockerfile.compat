@@ -145,7 +145,9 @@ RUN uid_owner="$(awk -F: '$3 == 1000 { print $1 }' /etc/passwd)" && \
       /etc/systemd/system/ly@tty1.service.d/10-conditions.conf && \
     grep -Fx 'ConditionKernelCommandLine=' \
       /etc/systemd/system/ly@tty1.service.d/10-conditions.conf && \
-    grep -Fx 'ConditionKernelCommandLine=!install-mode' \
+    grep -Fx 'ConditionPathExists=!/run/cos/install_mode' \
+      /etc/systemd/system/ly@tty1.service.d/10-conditions.conf && \
+    grep -Fx 'ConditionPathExists=!/run/cos/install_mode_interactive' \
       /etc/systemd/system/ly@tty1.service.d/10-conditions.conf && \
     test "$(readlink \
       /etc/systemd/system/multi-user.target.wants/ly@tty1.service)" = \

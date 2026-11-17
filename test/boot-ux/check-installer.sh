@@ -28,7 +28,16 @@ check "openssl available for password hashing" 'command -v openssl'
 check "old shell installer removed" '! test -e /usr/local/bin/isotope-install'
 check "installer drop-in points at isotope-install-ui" \
     'grep -q "/usr/bin/isotope-install-ui" /system/oem/90_desktop_installer.yaml'
-check "drop-in keeps the install-mode guard" \
-    'grep -q "install-mode" /system/oem/90_desktop_installer.yaml'
+# immucore decides the install intent and writes it as these files; Kairos'
+# 52_installer.yaml reads only them. The cmdline is no guard: an installed
+# Trusted Boot system keeps install-mode on it.
+check "drop-in is gated on the install sentinels" \
+    'grep -q "/run/cos/install_mode_interactive" /system/oem/90_desktop_installer.yaml && grep -q "\[ -f /run/cos/install_mode \]" /system/oem/90_desktop_installer.yaml'
+check "hooks the interactive installer service" \
+    'grep -q "kairos-interactive.service.d/10-desktop.conf" /system/oem/90_desktop_installer.yaml'
+check "no stage reads install-mode from the cmdline" \
+    '! grep -rlq "grep -q \"install-mode\" /proc/cmdline" /system/oem/'
+check "the Kairos stage this hooks reads the same sentinels" \
+    'grep -q "/run/cos/install_mode_interactive" /system/oem/52_installer.yaml'
 
 exit "$fail"

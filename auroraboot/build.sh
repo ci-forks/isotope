@@ -20,7 +20,7 @@ IMAGE="${1:?usage: build.sh <IMAGE> <OUT_DIR> [ISO_NAME]}"
 OUT_DIR="${2:?usage: build.sh <IMAGE> <OUT_DIR> [ISO_NAME]}"
 ISO_NAME="${3:-}"
 ARCH="${ARCH:-amd64}"
-AURORA_IMAGE="${AURORA_IMAGE:-quay.io/kairos/auroraboot:v0.29.0}"
+AURORA_IMAGE="${AURORA_IMAGE:-quay.io/kairos/auroraboot:v0.30.0}"
 
 THEME_SRC="rootfs/etc/kairos/branding/isotope-theme"
 OVERLAY_DIR="$OUT_DIR/iso-overlay"

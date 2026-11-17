@@ -1,17 +1,29 @@
-# Point the Kairos auto-installer at the Isotope installer.
+# Point the Kairos installer services at the Isotope installer.
 #
-# kairos-init bakes /system/oem/...installer.yaml which generates a
-# kairos-installer.service running `kairos-agent install` on tty1 in
-# install-mode. This stage (90, same initramfs stage, same install-mode guard)
-# drops a systemd override so that service runs /usr/bin/isotope-install-ui
-# instead — a Go TUI that collects user/password/disk/hostname, writes a
-# cloud-config to /oem, then runs `kairos-agent install` as a subprocess behind a
-# branded progress screen. If a cloud-config with a user/install block was already
-# provided, it skips the prompts and runs the normal unattended install.
+# kairos-init's 52_installer.yaml starts the stock Kairos installer on tty1 when
+# the boot asks to install. The decision is immucore's: it writes
+# /run/cos/install_mode for the plain installer (kairos-installer.service) and
+# /run/cos/install_mode_interactive for the interactive one
+# (kairos-interactive.service), and 52_installer.yaml reads only those files
+# (kairos-io/kairos#5464). On the GRUB live ISO immucore takes the intent from
+# the menu entry's install-mode or install-mode-interactive keyword; a Trusted
+# Boot (UKI) install medium always gets install_mode_interactive, because its
+# signed cmdline is the same on every entry and on the installed system.
+#
+# These stages (90, same initramfs stage, after 52) drop a systemd override on
+# whichever of the two services the boot gets, so it runs
+# /usr/bin/isotope-install-ui instead: a Go TUI that collects
+# user/password/disk/hostname, writes a cloud-config, then runs
+# `kairos-agent install` as a subprocess behind a branded progress screen. If a
+# cloud-config with a user/install block was already provided, it skips the
+# prompts and runs the normal unattended install.
+#
+# Read the same sentinel files as Kairos, never /proc/cmdline: an installed
+# Trusted Boot system keeps install-mode on its cmdline for its whole life.
 name: "Isotope installer UI"
 stages:
   initramfs:
-    - if: 'grep -q "install-mode" /proc/cmdline && ([ -f /run/cos/live_mode ] || [ -f /run/cos/uki_install_mode ])'
+    - if: '[ -f /run/cos/install_mode ]'
       name: "point kairos-installer at the Isotope installer"
       files:
         - path: /etc/systemd/system/kairos-installer.service.d/10-desktop.conf
@@ -24,15 +36,25 @@ stages:
             ExecStart=/usr/bin/isotope-install-ui
       commands:
         - systemctl daemon-reload
-    # A Trusted Boot (UKI) install medium has no install-mode entry to pick:
-    # immucore writes /run/cos/install_mode_interactive on every UKI medium
-    # boot, and kairos-init's 52_installer.yaml then starts
-    # kairos-interactive.service, the stock Kairos installer, not
-    # kairos-installer.service. Point that one at the Isotope installer too.
+    # The live ISO's install entries (auroraboot/live-grub.cfg.tmpl) ask for
+    # the interactive installer, so this is the stage a GRUB install boot gets.
+    - if: '[ -f /run/cos/install_mode_interactive ] && [ ! -f /run/cos/uki_install_mode ]'
+      name: "point kairos-interactive at the Isotope installer"
+      files:
+        - path: /etc/systemd/system/kairos-interactive.service.d/10-desktop.conf
+          permissions: 0644
+          owner: 0
+          group: 0
+          content: |
+            [Service]
+            ExecStart=
+            ExecStart=/usr/bin/isotope-install-ui
+      commands:
+        - systemctl daemon-reload
     # The UKI medium's root is read-only apart from /etc, /var, /srv and /home,
     # so /oem cannot take the wizard's answers: ISOTOPE_CONFIG_OUT puts them in
     # /etc/kairos, one of the directories kairos-agent reads its config from.
-    - if: '[ -f /run/cos/uki_install_mode ] && [ -f /run/cos/install_mode_interactive ]'
+    - if: '[ -f /run/cos/install_mode_interactive ] && [ -f /run/cos/uki_install_mode ]'
       name: "point the UKI interactive installer at the Isotope installer"
       files:
         - path: /etc/systemd/system/kairos-interactive.service.d/10-desktop.conf

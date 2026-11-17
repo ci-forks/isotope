@@ -21,12 +21,14 @@
 # across cos-setup re-runs) and is a no-op on an installed system, where
 # /run/initramfs/live does not exist.
 #
-# Guarded on !install-mode (the installer path already merges it) and on the
+# Guarded on no install sentinel (/run/cos/install_mode,
+# /run/cos/install_mode_interactive: the installer path already merges it) and
+# on the
 # agent profile marker, so this is a hard no-op on any non-agent image.
 name: "Isotope agent embedded cloud-config"
 stages:
   boot:
-    - if: '! grep -q "install-mode" /proc/cmdline && [ -f /etc/isotope-agent/profile ] && [ -f /run/initramfs/live/config.yaml ] && [ ! -f /oem/99_isotope_embedded_config.yaml ] && [ ! -f /oem/99_hadron_embedded_config.yaml ]'
+    - if: '[ ! -f /run/cos/install_mode ] && [ ! -f /run/cos/install_mode_interactive ] && [ -f /etc/isotope-agent/profile ] && [ -f /run/initramfs/live/config.yaml ] && [ ! -f /oem/99_isotope_embedded_config.yaml ] && [ ! -f /oem/99_hadron_embedded_config.yaml ]'
       name: "publish the ISO's embedded cloud-config into /oem"
       commands:
         - mkdir -p /oem

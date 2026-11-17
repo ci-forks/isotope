@@ -1,7 +1,7 @@
 # Isotope agent appliance: seed-gated zero-touch (autoinstall) disk install.
 #
-# This is the PROGRAMMATIC-CI path. It runs on the ISO's NORMAL default boot
-# (NOT install-mode) and, ONLY when the merged /oem seed FULLY authorizes a
+# This is the PROGRAMMATIC-CI path. It runs on a live boot that is NOT an
+# install boot and, ONLY when the merged /oem seed FULLY authorizes a
 # zero-touch install, wipes the configured disk and reboots into the installed
 # appliance. When the seed does not authorize it, the unit is SKIPPED and the
 # ordinary, NON-DESTRUCTIVE live agent boot proceeds untouched.
@@ -19,12 +19,14 @@
 # `kairos-agent install` and the reboot, and no live desktop (Ly autologin) ever
 # races the disk install for tty1.
 #
-# Guards: !install-mode (never fights the interactive installer for tty1) and
+# Guards: no immucore install sentinel, /run/cos/install_mode or
+# /run/cos/install_mode_interactive (never fights the installer for tty1), and
 # the /etc/isotope-agent/profile marker (a hard no-op on any non-agent image, so
 # the Task-4 wants-symlink dangles harmlessly on ordinary desktop images).
 [Unit]
 Description=Isotope agent seed-gated zero-touch install
-ConditionKernelCommandLine=!install-mode
+ConditionPathExists=!/run/cos/install_mode
+ConditionPathExists=!/run/cos/install_mode_interactive
 ConditionPathExists=/etc/isotope-agent/profile
 Before=isotope-agent-provision.service ly@tty1.service
 

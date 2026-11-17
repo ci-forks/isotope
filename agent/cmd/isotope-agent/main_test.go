@@ -375,3 +375,27 @@ func TestUnknownCommandReported(t *testing.T) {
 		t.Fatalf("unknown command error should echo the command:\n%s", stderr)
 	}
 }
+
+// TestInstallModeActiveReadsTheSentinels pins the install-boot test to
+// immucore's sentinel files: either one alone means the installer owns tty1,
+// and neither means it does not, whatever the kernel command line says.
+func TestInstallModeActiveReadsTheSentinels(t *testing.T) {
+	saved := installSentinels
+	t.Cleanup(func() { installSentinels = saved })
+
+	for _, present := range []string{"", "install_mode", "install_mode_interactive"} {
+		dir := t.TempDir()
+		installSentinels = []string{
+			filepath.Join(dir, "install_mode"),
+			filepath.Join(dir, "install_mode_interactive"),
+		}
+		if present != "" {
+			if err := os.WriteFile(filepath.Join(dir, present), nil, 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if got, want := installModeActive(), present != ""; got != want {
+			t.Errorf("with %q present: installModeActive() = %v, want %v", present, got, want)
+		}
+	}
+}
