@@ -61,38 +61,60 @@ func getJSON(ctx context.Context, repo, path string, out any) error {
 	return nil
 }
 
-// FetchLatest asks GitHub for the repository's latest release. GitHub's
-// "latest" already skips drafts and prereleases, and release.yml only
-// publishes a release after every flavor's image has been pushed, so a tag
-// returned here always has an image behind it.
+// FetchLatest is the newest installable release (see FetchReleases). It is
+// not GitHub's releases/latest: that is the release published last, and a
+// release can be published, from the web page with the tag, an hour before
+// release.yml has built and uploaded anything for it.
 func FetchLatest(ctx context.Context, repo string) (Latest, error) {
-	var l Latest
-	if err := getJSON(ctx, repo, "releases/latest", &l); err != nil {
+	rels, err := FetchReleases(ctx, repo)
+	if err != nil {
 		return Latest{}, err
 	}
-	if l.Tag == "" {
-		return Latest{}, fmt.Errorf("the latest release of %s has no tag", repo)
+	if len(rels) == 0 {
+		return Latest{}, fmt.Errorf("%s has no release with images yet", repo)
 	}
-	return l, nil
+	return rels[0], nil
 }
 
-// FetchReleases lists the repository's published releases, newest first, so
-// the user can deliberately install an older one. Drafts and prereleases are
-// dropped for the same reason "latest" drops them: only a published release
-// is guaranteed to have an image for every flavor. One page of 100 is plenty
-// for a picker.
+// releaseAsset is one file attached to a release. state is "uploaded" once
+// the file is complete; GitHub lists an unfinished upload as "open".
+type releaseAsset struct {
+	Name  string `json:"name"`
+	State string `json:"state"`
+}
+
+// hasManifest reports whether release.yml has finished with this release.
+// Its release job uploads the ISOs and their .build.json manifests only after
+// it has checked that every flavor's upgrade image is public, so one uploaded
+// manifest means every image is there. A release without one is still being
+// built, or its build failed: offering it would send the user to an image
+// that does not exist.
+func hasManifest(assets []releaseAsset) bool {
+	for _, a := range assets {
+		if strings.HasSuffix(a.Name, ".build.json") && a.State == "uploaded" {
+			return true
+		}
+	}
+	return false
+}
+
+// FetchReleases lists the repository's installable releases, newest first,
+// so the user can deliberately install an older one. Drafts, prereleases and
+// releases with no uploaded manifest (see hasManifest) are dropped. One page
+// of 100 is plenty for a picker.
 func FetchReleases(ctx context.Context, repo string) ([]Latest, error) {
 	var raw []struct {
 		Latest
-		Draft      bool `json:"draft"`
-		Prerelease bool `json:"prerelease"`
+		Draft      bool           `json:"draft"`
+		Prerelease bool           `json:"prerelease"`
+		Assets     []releaseAsset `json:"assets"`
 	}
 	if err := getJSON(ctx, repo, "releases?per_page=100", &raw); err != nil {
 		return nil, err
 	}
 	var out []Latest
 	for _, r := range raw {
-		if r.Draft || r.Prerelease || r.Tag == "" {
+		if r.Draft || r.Prerelease || r.Tag == "" || !hasManifest(r.Assets) {
 			continue
 		}
 		out = append(out, r.Latest)

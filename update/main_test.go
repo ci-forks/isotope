@@ -16,32 +16,55 @@ import (
 	"testing"
 )
 
-// fakeGitHub serves /repos/<repo>/releases/latest with the given tag, and an
-// empty /releases list.
+// fakeGitHub serves a /repos/<repo>/releases list holding one installable
+// release, tag.
 func fakeGitHub(t *testing.T, tag string) {
 	t.Helper()
-	fakeGitHubReleases(t, tag, `[]`)
+	fakeGitHubReleases(t, tag, fmt.Sprintf(`[{"tag_name":%q,"html_url":"https://example.invalid/%s"}]`, tag, tag))
 }
 
-// fakeGitHubReleases is fakeGitHub with a chosen /releases list body.
+// fakeGitHubReleases serves a chosen /releases list body. withManifests gives
+// every entry that names no assets an uploaded manifest, so it is installable.
+// tag is unused: the list is the only source of releases.
 func fakeGitHubReleases(t *testing.T, tag, releases string) {
 	t.Helper()
+	_ = tag
+	body := withManifests(t, releases)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/repos/kairos-community/isotope/releases/latest":
-			fmt.Fprintf(w, `{"tag_name":%q,"html_url":"https://example.invalid/%s"}`, tag, tag)
 		case "/repos/kairos-community/isotope/releases":
 			if r.URL.Query().Get("per_page") != "100" {
 				http.Error(w, "want per_page=100", http.StatusBadRequest)
 				return
 			}
-			fmt.Fprint(w, releases)
+			fmt.Fprint(w, body)
 		default:
 			http.NotFound(w, r)
 		}
 	}))
 	t.Cleanup(srv.Close)
 	t.Setenv("ISOTOPE_UPDATE_API", srv.URL)
+}
+
+// withManifests adds an uploaded .build.json asset to every release in a
+// /releases list that has no "assets" key, the way release.yml finishes one.
+func withManifests(t *testing.T, releases string) string {
+	t.Helper()
+	var list []map[string]any
+	if err := json.Unmarshal([]byte(releases), &list); err != nil {
+		t.Fatalf("releases fixture: %v", err)
+	}
+	for _, r := range list {
+		if _, ok := r["assets"]; !ok {
+			name := fmt.Sprintf("isotope-sway-%v-amd64.iso.build.json", r["tag_name"])
+			r["assets"] = []map[string]string{{"name": name, "state": "uploaded"}}
+		}
+	}
+	b, err := json.Marshal(list)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
 }
 
 // fakeTool writes a script that records its argv to a file and exits code.
