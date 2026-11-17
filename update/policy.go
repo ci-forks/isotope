@@ -16,6 +16,9 @@ const (
 	// labelGPU is the image line, full or vm. Images up to v0.0.7 have
 	// none.
 	labelGPU = "io.kairos.isotope.gpu"
+	// labelTrustedBoot is "true" on a Trusted Boot (UKI) upgrade image,
+	// <flavor>-uki-<tag> (release.yml, job build-uki).
+	labelTrustedBoot = "io.kairos.isotope.trusted-boot"
 )
 
 var (
@@ -35,6 +38,12 @@ var (
 	// release of the release repository. The spec accepts images from other
 	// repositories only through advanced mode.
 	ErrNotRelease = errors.New("this is not a published Isotope release")
+	// ErrTrustedBootImage and ErrNeedsTrustedBoot keep the uki line apart
+	// from the others, and are never overridable: kairos-agent on a Trusted
+	// Boot system installs only a signed UKI, and a UKI container written
+	// to a GRUB system's slot does not boot.
+	ErrTrustedBootImage = errors.New("this is a Trusted Boot (UKI) image; only a system that boots with Trusted Boot can install it")
+	ErrNeedsTrustedBoot = errors.New("this system boots with Trusted Boot; it installs only the signed Trusted Boot (UKI) images of Isotope releases")
 )
 
 // desktopFlavors are the flavors that ship the daemon and tray.
@@ -93,6 +102,15 @@ func Classify(info ImageInfo, rel Release, published []Latest) (Verdict, error) 
 	}
 	allowed := installable(rel)
 
+	// The uki line next: neither line may install the other's images.
+	uki := ukiImage(info)
+	if rel.TrustedBoot {
+		return classifyTrustedBoot(info, rel, published, allowed, uki)
+	}
+	if uki {
+		return Verdict{}, ErrTrustedBootImage
+	}
+
 	// Trusted by name: the repo and a tag that a published release maps to.
 	// A digest-only ref has no tag, and a tag+digest ref is resolved by the
 	// digest, so the tag says nothing about the content: neither is trusted by
@@ -119,6 +137,40 @@ func Classify(info ImageInfo, rel Release, published []Latest) (Verdict, error) 
 		return Verdict{Flavor: flavor, Version: version, GPU: line, Isotope: true}, nil
 	}
 	return Verdict{}, ErrNotIsotope
+}
+
+// ukiImage reports whether info looks like a Trusted Boot image: a
+// trusted-boot label that is not "false", or a tag with -uki- in it, from
+// any repository. A GRUB system refuses all of them.
+func ukiImage(info ImageInfo) bool {
+	if v := label(info, labelTrustedBoot); v != "" && v != "false" {
+		return true
+	}
+	return strings.Contains(info.Ref.Tag, "-"+lineUKI+"-")
+}
+
+// classifyTrustedBoot is Classify on a Trusted Boot system. Trusted by name
+// is only <flavor>-uki-<tag> of a published release in the release repo;
+// by label, the image must say trusted-boot=true. Everything else is
+// ErrNeedsTrustedBoot, except an image that looks like a UKI but is not
+// published or fully labelled, which is ErrNotIsotope (the daemon does not
+// let advanced mode lift it on Trusted Boot).
+func classifyTrustedBoot(info ImageInfo, rel Release, published []Latest, allowed map[string]bool, uki bool) (Verdict, error) {
+	if rel.ImageRepo != "" && info.Ref.Digest == "" && info.Ref.Repo() == rel.ImageRepo {
+		flavor, rest, ok := strings.Cut(info.Ref.Tag, "-")
+		tag, isUKI := strings.CutPrefix(rest, lineUKI+"-")
+		if ok && isUKI && allowed[flavor] && strictTag.MatchString(tag) && isPublished(tag, published) {
+			return Verdict{Flavor: flavor, Version: tag, GPU: lineUKI, Trusted: true, Isotope: true}, nil
+		}
+	}
+	flavor, version := label(info, labelFlavor), label(info, labelVersion)
+	if label(info, labelTrustedBoot) == "true" && allowed[flavor] && strictTag.MatchString(version) {
+		return Verdict{Flavor: flavor, Version: version, GPU: lineUKI, Isotope: true}, nil
+	}
+	if uki {
+		return Verdict{}, ErrNotIsotope
+	}
+	return Verdict{}, ErrNeedsTrustedBoot
 }
 
 // legacyLabelPrefix is the label prefix from before the rename to Isotope.
@@ -166,4 +218,11 @@ func LineRef(rel Release, flavor, line, tag string) (ImageRef, error) {
 var lineLabels = map[string]string{
 	gpuFull: "hardware (Intel and AMD GPU drivers, firmware)",
 	gpuVM:   "virtual machine (no GPU drivers or firmware)",
+	lineUKI: "Trusted Boot (signed UKI, hardware image)",
+}
+
+// advancedAllowed reports whether advanced mode may lift a refusal on rel:
+// never on Trusted Boot, where only a signed UKI can be installed.
+func advancedAllowed(rel Release) bool {
+	return !rel.TrustedBoot && AdvancedEnabled()
 }

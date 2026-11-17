@@ -354,7 +354,7 @@ func (d *Daemon) fetchReleases(ctx context.Context) ([]Latest, error) {
 	}
 	d.relMu.Unlock()
 
-	published, err := FetchReleases(ctx, d.rel.GitHubRepo)
+	published, err := FetchReleases(ctx, d.rel.GitHubRepo, d.rel.TrustedBoot)
 	if err != nil {
 		return nil, err
 	}
@@ -449,7 +449,7 @@ func (d *Daemon) evaluate(ctx context.Context, r ImageRef, advanced bool) (Image
 		err = ErrNotRelease
 	}
 	overridable := errors.Is(err, ErrNotIsotope) || errors.Is(err, ErrNotRelease)
-	if overridable && advanced && AdvancedEnabled() {
+	if overridable && advanced && advancedAllowed(d.rel) {
 		return info, v, published, nil
 	}
 	if err != nil {

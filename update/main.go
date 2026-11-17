@@ -166,7 +166,11 @@ func cmdStatus(name string, args []string, stdout, stderr io.Writer) int {
 	switch rel.Flavor {
 	case flavorAgent:
 	case flavorServer:
-		fmt.Fprintln(stdout, "Image:      server edition (no desktop)")
+		if rel.TrustedBoot {
+			fmt.Fprintf(stdout, "Image:      server edition (no desktop), %s\n", lineLabels[lineUKI])
+		} else {
+			fmt.Fprintln(stdout, "Image:      server edition (no desktop)")
+		}
 	default:
 		fmt.Fprintf(stdout, "Image:      %s\n", lineLabels[rel.Line()])
 	}
@@ -175,7 +179,7 @@ func cmdStatus(name string, args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "Pin:        %s\n", orNone(currentPin()))
 	}
 
-	latest, err := FetchLatest(context.Background(), rel.GitHubRepo)
+	latest, err := FetchLatest(context.Background(), rel.GitHubRepo, rel.TrustedBoot)
 	if err != nil {
 		fmt.Fprintln(stderr, "isotope: could not check for updates:", err)
 		return exitError
@@ -249,7 +253,7 @@ func cmdUpgrade(args []string, stdin io.Reader, stdout, stderr io.Writer) (code 
 
 	tag := *version
 	if tag == "" {
-		latest, err := FetchLatest(context.Background(), rel.GitHubRepo)
+		latest, err := FetchLatest(context.Background(), rel.GitHubRepo, rel.TrustedBoot)
 		if err != nil {
 			fmt.Fprintln(stderr, "isotope: could not check for updates:", err)
 			return exitError
@@ -503,6 +507,10 @@ func dialOrExplain(stderr io.Writer) (daemonClient, bool) {
 }
 
 func upgradeViaDaemon(rel Release, version, image string, yes, reboot bool, in *bufio.Reader, stdout, stderr io.Writer) int {
+	if image != "" && rel.TrustedBoot {
+		fmt.Fprintln(stderr, "isotope: this system boots with Trusted Boot; it installs only the signed Trusted Boot images of Isotope releases, so --image is not available.")
+		return exitUsage
+	}
 	c, ok := dialOrExplain(stderr)
 	if !ok {
 		return exitError
@@ -610,6 +618,12 @@ func cmdSwitch(args []string, stdin io.Reader, stdout, stderr io.Writer) (code i
 	}
 	if rel.Flavor == flavorServer {
 		fmt.Fprintln(stderr, "isotope: the server edition has no desktop to switch; it upgrades only to server images.")
+		return exitUsage
+	}
+	// Trusted Boot has one line, the signed UKI. Another desktop stays on
+	// it: line is rel.Line(), so the switch installs <flavor>-uki-<tag>.
+	if rel.TrustedBoot && *gpu != "" {
+		fmt.Fprintln(stderr, "isotope: this system boots with Trusted Boot; it has one image, the signed UKI, so --gpu cannot change it.")
 		return exitUsage
 	}
 	known := false

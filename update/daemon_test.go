@@ -23,6 +23,9 @@ const (
 	// labelledThirdParty carries the Isotope labels, but it is not in the
 	// release repository: a mirror, or someone's own build.
 	labelledThirdParty = "quay.io/kairos-community/isotope:labelled"
+	// labelledUKIThirdParty is labelledThirdParty with trusted-boot=true:
+	// someone's own UKI build, by its labels only (the tag says nothing).
+	labelledUKIThirdParty = "quay.io/kairos-community/isotope:signed"
 	// daemonReleases is the published list: newest v0.0.6.
 	daemonReleases = `[{"tag_name":"v0.0.5"},{"tag_name":"v0.0.6"},{"tag_name":"v0.0.4"},{"tag_name":"v0.0.7-rc1","prerelease":true}]`
 )
@@ -116,12 +119,14 @@ func daemonEnv(t *testing.T, installed string) daemonDigests {
 
 	reg := newFakeRegistry(t, false)
 	d := daemonDigests{}
-	for _, tag := range []string{"sway-v0.0.6", "sway-v0.0.5", "niri-v0.0.6", "agent-v0.0.6"} {
+	for _, tag := range []string{"sway-v0.0.6", "sway-v0.0.5", "niri-v0.0.6", "agent-v0.0.6", "sway-uki-v0.0.6", "niri-uki-v0.0.6"} {
 		d[ghcrRepo+":"+tag] = reg.image(t, "isotope", tag, "amd64", nil, false)
 	}
 	d[thirdParty] = reg.image(t, "isotope", "custom", "amd64", map[string]string{"x": "y"}, false)
 	d[labelledThirdParty] = reg.image(t, "isotope", "labelled", "amd64",
 		map[string]string{labelFlavor: "sway", labelVersion: "v0.0.6"}, false)
+	d[labelledUKIThirdParty] = reg.image(t, "isotope", "signed", "amd64",
+		map[string]string{labelFlavor: "sway", labelVersion: "v0.0.6", labelTrustedBoot: "true"}, false)
 	return d
 }
 
@@ -426,6 +431,86 @@ func TestAdvancedOverridesOnlyNotIsotope(t *testing.T) {
 				t.Fatal("backend called for a refused image")
 			}
 		})
+	}
+}
+
+// trustedBootEnv is daemonEnv on a Trusted Boot system, whose releases also
+// carry a uki manifest.
+func trustedBootEnv(t *testing.T, installed string) daemonDigests {
+	t.Helper()
+	dg := daemonEnv(t, installed)
+	appendRelease(t, "TRUSTED_BOOT=true\n")
+	fakeGitHubReleases(t, "", withUKIManifests(t, daemonReleases))
+	return dg
+}
+
+// The uki line and the others never cross, and advanced mode lifts nothing
+// on Trusted Boot: kairos-agent there installs only a signed UKI.
+func TestTrustedBootLineThroughTheDaemon(t *testing.T) {
+	for _, c := range []struct {
+		name        string
+		trustedBoot bool
+		ref         string
+		advanced    bool
+		refusal     error // nil: installed
+	}{
+		{"uki release on Trusted Boot", true, ghcrRepo + ":sway-uki-v0.0.6", false, nil},
+		{"other desktop's uki release on Trusted Boot", true, ghcrRepo + ":niri-uki-v0.0.6", false, nil},
+		{"normal release on Trusted Boot", true, ghcrRepo + ":sway-v0.0.6", false, ErrNeedsTrustedBoot},
+		{"unlabelled third-party on Trusted Boot, advanced", true, thirdParty, true, ErrNeedsTrustedBoot},
+		{"labelled third-party on Trusted Boot, advanced", true, labelledThirdParty, true, ErrNeedsTrustedBoot},
+		{"labelled uki third-party on Trusted Boot, advanced", true, labelledUKIThirdParty, true, ErrNotRelease},
+		{"uki release on GRUB", false, ghcrRepo + ":sway-uki-v0.0.6", false, ErrTrustedBootImage},
+		{"labelled uki third-party on GRUB, advanced", false, labelledUKIThirdParty, true, ErrTrustedBootImage},
+		{"normal release on GRUB", false, ghcrRepo + ":sway-v0.0.6", false, nil},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			var dg daemonDigests
+			if c.trustedBoot {
+				dg = trustedBootEnv(t, "v0.0.5")
+			} else {
+				dg = daemonEnv(t, "v0.0.5")
+			}
+			b := &fakeBackend{}
+			d := NewDaemon(b)
+			if _, _, err := d.Inspect(context.Background(), c.ref, c.advanced); !errors.Is(err, c.refusal) {
+				t.Fatalf("Inspect: %v, want %v", err, c.refusal)
+			}
+			if err := d.Apply(context.Background(), c.ref, dg[c.ref], c.advanced); err != nil {
+				t.Fatal(err)
+			}
+			if c.refusal == nil {
+				waitState(t, d, StateRebootPending)
+				if got := b.calls(); len(got) != 1 || !strings.HasSuffix(got[0], "@"+dg[c.ref]) {
+					t.Fatalf("sources %q, want the digest %s", got, dg[c.ref])
+				}
+				return
+			}
+			s := waitState(t, d, StateError)
+			if !strings.Contains(s.Detail, c.refusal.Error()) {
+				t.Fatalf("detail %q, want %q", s.Detail, c.refusal)
+			}
+			d.wg.Wait()
+			if len(b.calls()) != 0 {
+				t.Fatal("backend called for a refused image")
+			}
+		})
+	}
+}
+
+// A release with normal manifests only (built with TRUSTED_BOOT_RELEASE
+// off) is not published for a Trusted Boot daemon: no update, and its uki
+// tag is not trusted.
+func TestTrustedBootDaemonIgnoresReleasesWithoutUKIManifests(t *testing.T) {
+	trustedBootEnv(t, "v0.0.5")
+	fakeGitHubReleases(t, "", daemonReleases) // normal manifests only
+	d := NewDaemon(&fakeBackend{})
+	if _, _, err := d.Inspect(context.Background(), ghcrRepo+":sway-uki-v0.0.6", false); !errors.Is(err, ErrNotIsotope) {
+		t.Fatalf("Inspect: %v, want ErrNotIsotope", err)
+	}
+	d.Check(context.Background())
+	if s := d.Status(); s.State == StateUpdateAvailable {
+		t.Fatalf("offered %q to Trusted Boot without a uki manifest", s.Latest)
 	}
 }
 

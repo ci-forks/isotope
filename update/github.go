@@ -65,8 +65,8 @@ func getJSON(ctx context.Context, repo, path string, out any) error {
 // not GitHub's releases/latest: that is the release published last, and a
 // release can be published, from the web page with the tag, an hour before
 // release.yml has built and uploaded anything for it.
-func FetchLatest(ctx context.Context, repo string) (Latest, error) {
-	rels, err := FetchReleases(ctx, repo)
+func FetchLatest(ctx context.Context, repo string, trustedBoot bool) (Latest, error) {
+	rels, err := FetchReleases(ctx, repo, trustedBoot)
 	if err != nil {
 		return Latest{}, err
 	}
@@ -89,8 +89,15 @@ type releaseAsset struct {
 // manifest means every image is there. A release without one is still being
 // built, or its build failed: offering it would send the user to an image
 // that does not exist.
-func hasManifest(assets []releaseAsset) bool {
+//
+// On a Trusted Boot system only a uki manifest counts
+// (isotope-<flavor>-uki-<tag>-amd64.iso.build.json): a release built with
+// TRUSTED_BOOT_RELEASE off has manifests but no <flavor>-uki-<tag> image.
+func hasManifest(assets []releaseAsset, trustedBoot bool) bool {
 	for _, a := range assets {
+		if trustedBoot && !strings.Contains(a.Name, "-"+lineUKI+"-") {
+			continue
+		}
 		if strings.HasSuffix(a.Name, ".build.json") && a.State == "uploaded" {
 			return true
 		}
@@ -100,9 +107,9 @@ func hasManifest(assets []releaseAsset) bool {
 
 // FetchReleases lists the repository's installable releases, newest first,
 // so the user can deliberately install an older one. Drafts, prereleases and
-// releases with no uploaded manifest (see hasManifest) are dropped. One page
-// of 100 is plenty for a picker.
-func FetchReleases(ctx context.Context, repo string) ([]Latest, error) {
+// releases with no uploaded manifest (see hasManifest; trustedBoot asks for
+// a uki one) are dropped. One page of 100 is plenty for a picker.
+func FetchReleases(ctx context.Context, repo string, trustedBoot bool) ([]Latest, error) {
 	var raw []struct {
 		Latest
 		Draft      bool           `json:"draft"`
@@ -114,7 +121,7 @@ func FetchReleases(ctx context.Context, repo string) ([]Latest, error) {
 	}
 	var out []Latest
 	for _, r := range raw {
-		if r.Draft || r.Prerelease || r.Tag == "" || !hasManifest(r.Assets) {
+		if r.Draft || r.Prerelease || r.Tag == "" || !hasManifest(r.Assets, trustedBoot) {
 			continue
 		}
 		out = append(out, r.Latest)

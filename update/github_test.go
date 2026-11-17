@@ -13,7 +13,7 @@ func TestFetchReleasesSkipsDraftsAndPrereleases(t *testing.T) {
 		{"tag_name":"v0.0.7","draft":true},
 		{"tag_name":"v0.0.4","html_url":"u4"}
 	]`)
-	got, err := FetchReleases(context.Background(), "kairos-community/isotope")
+	got, err := FetchReleases(context.Background(), "kairos-community/isotope", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -28,7 +28,7 @@ func TestFetchReleasesSkipsDraftsAndPrereleases(t *testing.T) {
 
 func TestFetchReleasesSortsNewestFirst(t *testing.T) {
 	fakeGitHubReleases(t, "v0.0.5", `[{"tag_name":"v0.0.4"},{"tag_name":"v0.0.10"},{"tag_name":"v0.0.5"}]`)
-	got, err := FetchReleases(context.Background(), "kairos-community/isotope")
+	got, err := FetchReleases(context.Background(), "kairos-community/isotope", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,7 +43,7 @@ func TestFetchReleasesSortsNewestFirst(t *testing.T) {
 
 func TestFetchReleasesUnknownRepo(t *testing.T) {
 	fakeGitHub(t, "v0.0.5")
-	if _, err := FetchReleases(context.Background(), "nobody/nothing"); err == nil {
+	if _, err := FetchReleases(context.Background(), "nobody/nothing", false); err == nil {
 		t.Fatal("want an error for a 404")
 	}
 }
@@ -62,7 +62,7 @@ func TestFetchReleasesSkipsReleasesWithoutManifests(t *testing.T) {
 		{"tag_name":"v0.0.15","assets":[{"name":"isotope-sway-v0.0.15-amd64.iso","state":"uploaded"}]},
 		{"tag_name":"v0.0.12"}
 	]`)
-	got, err := FetchReleases(context.Background(), "kairos-community/isotope")
+	got, err := FetchReleases(context.Background(), "kairos-community/isotope", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +73,7 @@ func TestFetchReleasesSkipsReleasesWithoutManifests(t *testing.T) {
 	if want := []string{"v0.0.17", "v0.0.12"}; !reflect.DeepEqual(tags, want) {
 		t.Fatalf("tags = %v, want %v", tags, want)
 	}
-	latest, err := FetchLatest(context.Background(), "kairos-community/isotope")
+	latest, err := FetchLatest(context.Background(), "kairos-community/isotope", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +84,7 @@ func TestFetchReleasesSkipsReleasesWithoutManifests(t *testing.T) {
 
 func TestFetchLatestWithNothingInstallable(t *testing.T) {
 	fakeGitHubReleases(t, "", `[{"tag_name":"v0.0.19","assets":[]}]`)
-	if _, err := FetchLatest(context.Background(), "kairos-community/isotope"); err == nil {
+	if _, err := FetchLatest(context.Background(), "kairos-community/isotope", false); err == nil {
 		t.Fatal("want an error when no release has images")
 	}
 }
