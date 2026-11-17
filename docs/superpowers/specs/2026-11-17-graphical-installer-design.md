@@ -70,16 +70,26 @@ These are in the mocks and need code the text installer does not have:
   disk, drawn as a bar with one segment per partition. The warning names what
   it recognises (an NTFS partition labelled for Windows, an ext4 or btrfs
   root, a Kairos `COS_*` layout) and falls back to "Everything on this disk".
-  The disk's model and bus come from sysfs (`device/model`, the transport).
+  The disk's model and bus come from sysfs (`device/model`, and where the
+  disk's sysfs entry points: nvme, ata, usb, virtio, mmc). The parsing and
+  the wording live in `install-ui/core/diskinfo.go`.
 - **Time zone map.** A world map (Natural Earth 1:110m, public domain) drawn
   as vector shapes, with the zone's band highlighted and a dot on its main
   city. Clicking picks the nearest zone city. The field under it accepts
-  typing, with the same list and filter as today.
+  typing, with the same list and filter as today: while it holds a search,
+  the list of matches takes the map's place. The outlines are simplified
+  from the 1:110m land polygons by `install-gui/worldmap_gen.go` (about
+  20 KB, embedded); the cities come from tzdata's `zone.tab` and
+  `zone1970.tab` (`core.ZoneCoords`, `core.NearestZone`).
 - **"Try it" field.** It types with the chosen layout (see "Keyboard").
+- **GitHub key lookup.** `https://github.com/NAME.keys`, once the name has
+  stayed the same for 0.7 s, and again on Continue; the result never blocks
+  the install (`core.CountGithubKeys`).
 - **QR code for the recovery key.** A button that shows the key as a QR code,
   for a phone photo. It is drawn in the window only, like the key.
 - **Time estimate.** "About N minutes left" from the stage weights in
-  `install-ui/steps.go` and the time spent so far. Shown only after the first
+  `install-ui/core/estimate.go`, next to the steps of `core/steps.go`, and
+  the time spent so far. Shown only after the first
   30 seconds of "Installing the active system"; until then, nothing.
 
 ## Visual system
@@ -182,7 +192,17 @@ image.
   touchpad work through libinput, as in the desktop.
 
 X is not needed. On i3 the installed desktop runs XLibre, but the installer
-does not depend on the variant's display server.
+does not depend on the variant's display server. It does need Wayland there:
+the i3 image gets the Wayland client and server libraries and
+libdisplay-info, and its Mesa (`mesa-x11`) is built with the Wayland platform
+next to X11, so cage and the GUI run on i3 as on the other three.
+
+cage is built from its release for the wlroots series the image has (0.2.0
+for wlroots 0.18), with wlroots linked in as a meson subproject, so cosmic,
+niri and i3, which do not use wlroots, need no libwlroots.
+
+The agent image removes cage and the GUI: it installs unattended with
+`--progress-only`, which never starts them.
 
 ## Starting
 
@@ -202,9 +222,14 @@ device, no seat, a driver hang), `isotope-install-ui` starts the text
 installer on tty1 instead. The fallback happens before any question is
 answered, so nothing is lost. A crash after that point shows the text
 installer from the start with a line saying the graphical installer stopped;
-an install already running is never started twice (the GUI writes its run
-state to `/run/isotope-install/` and the text installer refuses to start a
-second install while the child process lives).
+an install already running is never started twice (the GUI writes
+`/run/isotope-install/install-running` while its install runs, and
+`isotope-install-ui` then stops with an error instead of starting the text
+installer).
+
+The GUI talks to `isotope-install-ui` with its exit status: 75 asks for a new
+cage with another keyboard layout (see "Keyboard"), 76 for the text
+installer's rescue shell on tty1 (see "Errors").
 
 The GRUB menu of the desktop ISOs gets one more entry, "isotope (text
 installer)", which adds `isotope.installer=text`. Safe graphics keeps the
@@ -217,17 +242,21 @@ field and in every field after it. cage takes its keymap from
 `XKB_DEFAULT_LAYOUT` and `XKB_DEFAULT_VARIANT` when it starts and has no way
 to change it later.
 
-So `install-gui` does not rely on the compositor's keymap. It asks cage for
-the raw keycodes (Gio exposes the key event and the compositor's keymap; the
-GUI keeps its own `xkb_state` built from the chosen layout with
-libxkbcommon) and translates them itself. The compositor's keymap stays `us`
-and only matters for shortcuts, which the GUI does not have.
+The first plan was for `install-gui` to keep its own `xkb_state`, built from
+the chosen layout, and translate cage's raw keycodes itself. Gio does not
+allow that: its Wayland backend keeps the xkb state in an internal package
+(`gioui.org/app/internal/xkb`), loads only the keymap the compositor sends,
+and gives the program translated key events and text, never keycodes. Doing
+it anyway would mean a fork of Gio.
 
-If that proves unworkable in Gio, the fallback is to restart cage with the
-new layout: the GUI saves its state to `/run/isotope-install/state.json`
-(never the passwords; those pages are re-shown empty) and exits with a code
-that tells `isotope-install-ui` to relaunch at the next page. That costs a
-one-second flash.
+So the GUI restarts cage with the new layout. Picking a layout other than the
+one cage was started with (a click on it, Enter in the search field, or
+Continue) saves the answers to `/run/isotope-install/state.json` (0600; never
+a password, a passphrase or a recovery key) and exits with status 75.
+`isotope-install-ui` checks the layout with `core.ValidateKeyboard` and starts
+cage again with `XKB_DEFAULT_LAYOUT` and `XKB_DEFAULT_VARIANT`. The GUI opens
+where it was: on the keyboard page with the focus in "Try it", or on the
+account page with the password fields empty. That costs a short flash.
 
 The console keymap (`loadkeys`) and the cloud-config's keymap stage are set
 as today, so the boot passphrase prompt gets the same layout.
@@ -244,8 +273,12 @@ as today, so the boot passphrase prompt gets the same layout.
 - **Install failure.** Page 8 turns into "Isotope could not be installed": the
   stage it stopped at, the last 200 lines of the log (selectable), and three
   buttons: "Save the log" (to a USB stick if one is mounted, else
-  `/run/isotope-install/install.log`), "Open a terminal" (a foot or terminal
-  window in cage, the GUI's rescue shell), and "Restart".
+  `/run/isotope-install/install.log`, where the GUI writes the whole log as
+  it runs), "Open a terminal", and "Restart". "Open a terminal" starts foot
+  as a second window in cage where the image has it (sway and niri); on i3
+  and cosmic, whose terminals do not run in cage, the GUI exits with status
+  76 and `isotope-install-ui` gives tty1 to `/bin/sh`, the text installer's
+  rescue shell.
 
 ## Accessibility
 
@@ -281,17 +314,18 @@ as today, so the boot passphrase prompt gets the same layout.
 2. `install-gui` with the nine pages, the cage stage in the Dockerfile, the
    start-up decision, and the screenshot tests. The desktop ISOs switch to it;
    the server is untouched. One PR, with screenshots of every page.
-3. The new parts: disk contents, the map, QR, estimate, Save the log. Each
-   can land on its own after 2.
+3. The new parts: disk contents, the map, QR, estimate, the GitHub key
+   lookup, Save the log and Open a terminal, the breathing mark.
 4. Docs: README's install section and screenshots, `docs/DEVELOPMENT.md`,
    the feature table in `AGENTS.md` (the installer row: graphical on the four
    variants, text on the server and the agent).
 
+Steps 2, 3 and 4 landed together, in one PR, with this note.
+
 ## Open questions
 
-- **Gio and per-application keymaps.** Whether Gio gives access to raw
-  keycodes cleanly enough for the GUI's own `xkb_state`. Prototype first; the
-  cage restart is the fallback.
+- **Gio and per-application keymaps.** Answered: Gio gives no raw keycodes,
+  so the GUI restarts cage (see "Keyboard").
 - **Image size.** cage, Gio's binary and Space Grotesk add a few MB to every
   desktop image. Measure in step 2.
 - **The agent appliance.** It installs unattended behind `--progress-only`.

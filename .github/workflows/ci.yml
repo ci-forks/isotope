@@ -58,6 +58,8 @@ jobs:
         env:
           CGO_ENABLED: "1"
           EGL_PLATFORM: surfaceless
+          # Fail, not skip, when Mesa cannot give a context.
+          ISOTOPE_GUI_REQUIRE_SCREENSHOTS: "1"
         run: |
           test -z "$(gofmt -l .)"
           go vet -tags nox11,novulkan ./... && go test -tags nox11,novulkan ./...
