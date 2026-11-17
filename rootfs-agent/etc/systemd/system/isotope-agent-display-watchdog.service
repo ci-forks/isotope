@@ -7,13 +7,15 @@
 # and even that is rate-limited (three per five minutes) before degrading.
 #
 # ConditionPathExists=/etc/isotope-agent/profile keeps this a no-op on any image
-# without the agent overlay. ConditionKernelCommandLine=!install-mode keeps it
-# off during the installer boot, where the installer owns tty1 (the binary also
-# refuses install-mode as a second guard).
+# without the agent overlay. The two !/run/cos/install_mode*
+# conditions keep it off during the installer boot, where the installer owns
+# tty1 (the binary also refuses to run when either file exists, as a second
+# guard). immucore writes them on a boot that asks to install.
 [Unit]
 Description=Isotope agent display watchdog (keep the foreground XLibre/i3 session alive)
 ConditionPathExists=/etc/isotope-agent/profile
-ConditionKernelCommandLine=!install-mode
+ConditionPathExists=!/run/cos/install_mode
+ConditionPathExists=!/run/cos/install_mode_interactive
 After=isotope-agent-provision.service ly@tty1.service
 
 [Service]

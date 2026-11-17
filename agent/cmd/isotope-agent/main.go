@@ -594,10 +594,9 @@ func runStatus(args []string, stdout, stderr io.Writer) error {
 // itself. Restarts are rate-limited (three per five minutes) after which the
 // watchdog reports degraded rather than thrashing tty1.
 //
-// The unit that runs this carries ConditionKernelCommandLine=!install-mode; as
-// a belt-and-braces guard the binary also refuses to run when it detects
-// install-mode on the kernel command line, so it can never fight the installer
-// for tty1.
+// The unit that runs this carries ConditionPathExists=! on both immucore install
+// sentinels; as a belt-and-braces guard the binary also refuses to run when
+// either exists, so it can never fight the installer for tty1.
 func runDisplayWatchdog(args []string, stderr io.Writer) error {
 	fs := newFlagSet("display-watchdog", stderr)
 	user := fs.String("user", "agent", "account whose graphical session is guarded")
@@ -632,16 +631,20 @@ func runDisplayWatchdog(args []string, stderr io.Writer) error {
 	return nil
 }
 
-// installModeActive reports whether the kernel command line requests
-// install-mode. The watchdog refuses to run in that case so it never restarts
-// Ly while the installer needs tty1.
+// installSentinels are the files immucore writes under /run/cos/ on a boot
+// that asks to install (kairos sdk/state.InstallIntentSentinels):
+// install_mode for the plain installer, install_mode_interactive for the
+// interactive one. Kairos starts its installer on them, so they, not the
+// kernel command line, say whether the installer owns tty1. An installed
+// Trusted Boot system keeps install-mode on its command line for good.
+var installSentinels = []string{"/run/cos/install_mode", "/run/cos/install_mode_interactive"}
+
+// installModeActive reports whether this is an install boot. The watchdog
+// refuses to run in that case so it never restarts Ly while the installer
+// needs tty1.
 func installModeActive() bool {
-	b, err := os.ReadFile("/proc/cmdline")
-	if err != nil {
-		return false
-	}
-	for _, f := range strings.Fields(string(b)) {
-		if f == "install-mode" {
+	for _, p := range installSentinels {
+		if _, err := os.Stat(p); err == nil {
 			return true
 		}
 	}

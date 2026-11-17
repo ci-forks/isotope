@@ -46,9 +46,18 @@ check "no unrendered placeholder in theme.txt" \
 check "theme subtitle is '$EXPECTED_SUBTITLE'" \
     "test -f '$THEME' && grep -qF '$EXPECTED_SUBTITLE' '$THEME'"
 check "menu is retitled to isotope"      "grep -q 'menuentry \"isotope\"' '$CFG'"
+# One install entry (AuroraBoot#869): immucore turns install-mode-interactive
+# into /run/cos/install_mode_interactive, which 90_desktop_installer.yaml hooks.
+check "default names the install entry by id" \
+    "grep -qx 'set default=\"isotope-install\"' '$CFG' && grep -q 'menuentry \"isotope\" --id isotope-install ' '$CFG'"
 check "no stale Kairos titles"          "test -f '$CFG' && ! grep -q 'menuentry \"Kairos' '$CFG'"
-check "default entry carries install-mode" \
-    "entry 'isotope' | grep -q ' install-mode '"
+check "default entry asks for the interactive installer" \
+    "entry 'isotope' | grep -q ' install-mode-interactive '"
+# The unattended install-mode entry, the plain "manual" boot and remote
+# recovery (AuroraBoot#880) are retired upstream.
+check "no plain install-mode entry"     "test -f '$CFG' && ! grep -qE ' install-mode( |\$)' '$CFG'"
+check "no manual entry"                 "test -f '$CFG' && ! grep -q 'menuentry \"isotope (manual)\"' '$CFG'"
+check "no remote recovery entry"        "test -f '$CFG' && ! grep -q 'remote_recovery' '$CFG'"
 check "quiet cmdline on the default entry" \
     "entry 'isotope' | grep -qF '$QUIET'"
 check "console palette on the default entry" \
@@ -59,11 +68,9 @@ check "console palette on the default entry" \
 check "no nomodeset on the default entry" \
     "test -f '$CFG' && ! entry 'isotope' | grep -q nomodeset"
 check "safe graphics entry installs with nomodeset" \
-    "entry 'isotope (safe graphics)' | grep -q 'vga=795 nomodeset install-mode '"
+    "entry 'isotope (safe graphics)' | grep -q 'vga=795 nomodeset install-mode-interactive '"
 check "debug entry left verbose" \
     "entry 'isotope (debug)' | grep -q 'rd.debug' && ! entry 'isotope (debug)' | grep -q 'quiet'"
-check "recovery entry left verbose" \
-    "entry 'isotope (remote recovery mode)' | grep -q 'kairos.remote_recovery_mode' && ! entry 'isotope (remote recovery mode)' | grep -q 'quiet'"
 # GRUB has no hiddenentry command: on EFI it printed "can't find command".
 check "no hiddenentry"                  "test -f '$CFG' && ! grep -q hiddenentry '$CFG'"
 # Each echo opens a text box over the theme.

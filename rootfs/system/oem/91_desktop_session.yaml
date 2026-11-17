@@ -7,13 +7,13 @@
 # mirroring 09_systemd_services.yaml — wires and starts ly against the live /etc
 # on every boot of the installed system.
 #
-# Guarded so it does NOT run during the live/installer boot: there the installer
-# (kairos-installer.service) owns tty1, and ly's own ConditionKernelCommandLine
-# /ConditionPathExists drop-in keeps it from stealing the VT.
+# Guarded so it does NOT run during the live/installer boot: an install boot is
+# always a live one (/run/cos/live_mode), the installer owns tty1 there, and
+# ly's own ConditionPathExists drop-in keeps it from stealing the VT.
 name: "Isotope session"
 stages:
   boot:
-    - if: '! grep -q "install-mode" /proc/cmdline && [ ! -f /run/cos/live_mode ]'
+    - if: '[ ! -f /run/cos/live_mode ]'
       name: "enable + start ly on the installed desktop"
       commands:
         - mkdir -p /etc/systemd/system/multi-user.target.wants

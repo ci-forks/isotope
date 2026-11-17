@@ -5,7 +5,7 @@
 name: "Isotope session"
 stages:
   boot:
-    - if: '! grep -q "install-mode" /proc/cmdline && [ ! -f /run/cos/live_mode ]'
+    - if: '[ ! -f /run/cos/live_mode ]'
       name: "enable + start the COSMIC greeter on the installed desktop"
       commands:
         - mkdir -p /etc/systemd/system/multi-user.target.wants

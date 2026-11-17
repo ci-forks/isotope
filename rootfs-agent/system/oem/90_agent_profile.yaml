@@ -1,7 +1,8 @@
 # Isotope agent appliance: account, linger, and runtime socket bootstrap.
 #
 # Runs on every LIVE or INSTALLED-NORMAL boot of the agent image, and is skipped
-# during the installer (install-mode) boot. It is additionally a hard no-op on
+# during the installer boot (immucore's /run/cos/install_mode or
+# /run/cos/install_mode_interactive). It is additionally a hard no-op on
 # any non-agent image via the /etc/isotope-agent/profile marker guard, so the
 # stage can never touch an ordinary desktop install.
 #
@@ -30,7 +31,7 @@
 name: "Isotope agent profile"
 stages:
   boot:
-    - if: '! grep -q "install-mode" /proc/cmdline && [ -f /etc/isotope-agent/profile ]'
+    - if: '[ ! -f /run/cos/install_mode ] && [ ! -f /run/cos/install_mode_interactive ] && [ -f /etc/isotope-agent/profile ]'
       name: "configure ly autologin for the agent session"
       commands:
         - |
@@ -54,7 +55,7 @@ stages:
           set_kv auto_login_user agent
           set_kv auto_login_session i3
           set_kv auto_login_service ly-autologin
-    - if: '! grep -q "install-mode" /proc/cmdline && [ -f /etc/isotope-agent/profile ]'
+    - if: '[ ! -f /run/cos/install_mode ] && [ ! -f /run/cos/install_mode_interactive ] && [ -f /etc/isotope-agent/profile ]'
       name: "create locked agent account, linger, and socket dirs"
       commands:
         - |
