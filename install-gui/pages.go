@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"image"
+	"image/color"
+	"strconv"
 	"strings"
 	"time"
 
@@ -59,7 +61,7 @@ func (u *UI) Layout(gtx layout.Context) layout.Dimensions {
 	if u.page == pWelcome {
 		// The large faint mark behind the welcome window.
 		o := op.Offset(win.Min.Add(pt(gtx, -90, -170))).Push(gtx.Ops)
-		mark(gtx, 1100, false, 0.06)
+		mark(gtx, 1100, false, 0.06, 0)
 		o.Pop()
 	}
 
@@ -95,15 +97,20 @@ func (u *UI) Layout(gtx layout.Context) layout.Dimensions {
 			u.hooks.started()
 		}
 	}
-	if !u.pageAt.IsZero() && u.now().Sub(u.pageAt) < slideTime || u.page == pInstalling && !u.install.failed {
+	switch {
+	case !u.pageAt.IsZero() && u.now().Sub(u.pageAt) < slideTime:
 		gtx.Execute(op.InvalidateCmd{})
+	case u.page == pWelcome || u.page == pInstalling && !u.install.failed:
+		// The breathing mark and the spinner: 20 frames a second is
+		// plenty for a slow sine, and spares llvmpipe.
+		gtx.Execute(op.InvalidateCmd{At: gtx.Now.Add(50 * time.Millisecond)})
 	}
 	return layout.Dimensions{Size: size}
 }
 
 // blank is the window before core has handed over the wizard.
 func (u *UI) blank(gtx layout.Context) layout.Dimensions {
-	return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions { return mark(gtx, 148, false, 1) })
+	return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions { return mark(gtx, 148, false, 1, 0) })
 }
 
 // --- sidebar ----------------------------------------------------------------
@@ -118,7 +125,7 @@ func (u *UI) sidebar(gtx layout.Context) layout.Dimensions {
 		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions { return mark(gtx, 30, false, 1) }),
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions { return mark(gtx, 30, false, 1, 0) }),
 					layout.Rigid(layout.Spacer{Width: 10}.Layout),
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 						return u.label(gtx, stBrand, colText, "Install Isotope")
@@ -318,7 +325,9 @@ func (u *UI) welcome(gtx layout.Context) layout.Dimensions {
 					o := op.Offset(pt(gtx, -46, -16)).Push(gtx.Ops)
 					glow(gtx, 240, colAccent, 0.12)
 					o.Pop()
-					return mark(gtx, 148, false, 1)
+					// The mark breathes, as on the splash: the first
+					// triangle moves out a little and back.
+					return mark(gtx, 148, false, 1, 0.15*(1+breath(u.now())))
 				}),
 				vgap(22),
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -377,7 +386,7 @@ func (u *UI) keyboardColumn(gtx layout.Context) layout.Dimensions {
 
 // pickList is the list of layouts or zones: the selected row in the accent
 // colour, an optional code on the right.
-func (u *UI) pickList(gtx layout.Context, l *widget.List, shown []int, sel int, rows []widget.Clickable, text func(int) (string, string)) layout.Dimensions {
+func (u *UI) pickList(gtx layout.Context, l *widget.List, shown []int, sel int, rows []rowClick, text func(int) (string, string)) layout.Dimensions {
 	gtx.Constraints.Min = gtx.Constraints.Max
 	return panel(gtx, 10, layout.UniformInset(6), func(gtx layout.Context) layout.Dimensions {
 		gtx.Constraints.Min = gtx.Constraints.Max
@@ -392,7 +401,7 @@ func (u *UI) pickList(gtx layout.Context, l *widget.List, shown []int, sel int, 
 			on := i == sel
 			gtx.Constraints.Min.X = gtx.Constraints.Max.X
 			return layout.Inset{Bottom: 2}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				return rows[i].Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				return rows[i].layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					m := op.Record(gtx.Ops)
 					dims := layout.Inset{Top: 9, Bottom: 9, Left: 12, Right: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 						fg, st, cc := colText2, stBody, colDim
@@ -418,7 +427,7 @@ func (u *UI) pickList(gtx layout.Context, l *widget.List, shown []int, sel int, 
 					switch {
 					case on:
 						fillRRect(gtx, image.Rectangle{Max: dims.Size}, dp(gtx, 6), colAccent)
-					case rows[i].Hovered():
+					case rows[i].c.Hovered():
 						fillRRect(gtx, image.Rectangle{Max: dims.Size}, dp(gtx, 6), over(colSidebar, colText, 0.05))
 					}
 					c.Add(gtx.Ops)
@@ -433,11 +442,18 @@ func (u *UI) zoneColumn(gtx layout.Context) layout.Dimensions {
 	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return u.label(gtx, stLabel, colText2, "Time zone") }),
 		vgap(10),
-		// The mocks put a world map here; it comes with step 3 of the
-		// design note. Until then, the zones the field matches.
+		// The map, or while a city is being typed the zones it matches.
 		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-			return u.pickList(gtx, &u.tzList, u.tzShown, u.tzSel, u.tzRows, func(i int) (string, string) {
-				return strings.ReplaceAll(u.w.Zones[i], "_", " "), ""
+			if u.zoneFiltering() || len(u.zoneCoords) == 0 {
+				return u.pickList(gtx, &u.tzList, u.tzShown, u.tzSel, u.tzRows, func(i int) (string, string) {
+					return strings.ReplaceAll(u.w.Zones[i], "_", " "), ""
+				})
+			}
+			gtx.Constraints.Min = gtx.Constraints.Max
+			return panel(gtx, 10, layout.Inset{}, func(gtx layout.Context) layout.Dimensions {
+				gtx.Constraints.Min = gtx.Constraints.Max
+				defer clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Max}, dp(gtx, 10)).Push(gtx.Ops).Pop()
+				return u.worldMap(gtx)
 			})
 		}),
 		vgap(10),
@@ -451,7 +467,11 @@ func (u *UI) zoneColumn(gtx layout.Context) layout.Dimensions {
 			if u.tzField.err != "" {
 				return u.label(gtx, stSmall, colError, u.tzField.err)
 			}
-			return u.labelLines(gtx, stSmall, colDim, 1.4, "Found from this computer's clock. Type a city to change it.")
+			hint := "Found from this computer's clock. Click the map or type a city."
+			if len(u.zoneCoords) == 0 {
+				hint = "Found from this computer's clock. Type a city to change it."
+			}
+			return u.labelLines(gtx, stSmall, colDim, 1.4, hint)
 		}),
 	)
 }
@@ -593,11 +613,36 @@ func (u *UI) githubBox(gtx layout.Context) layout.Dimensions {
 				return u.input(gtx, u.gh, stMono, 38, "github.com/", nil)
 			}),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				if u.gh.err == "" {
+				if u.gh.err != "" {
+					return layout.Inset{Top: 6}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+						return u.label(gtx, stTiny, colError, u.gh.err)
+					})
+				}
+				txt, good, ok := u.githubStatus()
+				if !ok {
 					return layout.Dimensions{}
 				}
-				return layout.Inset{Top: 6}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					return u.label(gtx, stTiny, colError, u.gh.err)
+				// Warnings, not errors: the install goes on without keys.
+				return layout.Inset{Top: 8}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+					return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
+						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+							if good {
+								return checkIcon(gtx, 12)
+							}
+							if txt == "Checking GitHub" {
+								return spinner(gtx, 12, float32(u.now().UnixMilli()%1000)/1000)
+							}
+							return warnIcon(gtx, 13, colWarn)
+						}),
+						layout.Rigid(layout.Spacer{Width: 6}.Layout),
+						layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+							col := colText2
+							if good {
+								col = colGlow
+							}
+							return u.label(gtx, stSmall, col, txt)
+						}),
+					)
 				})
 			}),
 		)
@@ -616,13 +661,16 @@ func (u *UI) disk(gtx layout.Context) layout.Dimensions {
 			}),
 		)
 	}
-	sel := u.w.Disks[u.diskSel]
+	info := u.info(u.diskSel)
 	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 		layout.Rigid(u.heading("Where should Isotope go?", "Isotope uses the whole disk. Everything on the disk you pick is erased.")),
 		vgap(22),
 		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 			rows := (len(u.w.Disks) + 2) / 3
-			return u.diskList.Layout(gtx, rows, func(gtx layout.Context, r int) layout.Dimensions {
+			return u.diskList.Layout(gtx, rows+1, func(gtx layout.Context, r int) layout.Dimensions {
+				if r == rows {
+					return u.diskBar(gtx, u.diskSel)
+				}
 				return layout.Inset{Bottom: 14}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					var kids []layout.FlexChild
 					for c := 0; c < 3; c++ {
@@ -641,28 +689,135 @@ func (u *UI) disk(gtx layout.Context) layout.Dimensions {
 				})
 			})
 		}),
+		vgap(14),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			// What is on the disk now, named, comes with step 3 of the
-			// design note; until then the warning says it plainly.
-			return u.warning(gtx, fmt.Sprintf("Everything on %s will be erased.", sel.Path))
+			return u.warning(gtx, info.ErasureWarning())
 		}),
 	)
+}
+
+// info is what is known about Disks[i], with its size from the disk list
+// when lsblk gave none.
+func (u *UI) info(i int) core.DiskInfo {
+	var d core.DiskInfo
+	if i < len(u.diskInfo) {
+		d = u.diskInfo[i]
+	}
+	if d.SizeBytes == 0 {
+		d.SizeBytes = int64(u.w.Disks[i].SizeGB) * 1000 * 1000 * 1000
+	}
+	return d
+}
+
+// diskTitle is the card's title: the model, or the size when sysfs has no
+// model.
+func (u *UI) diskTitle(i int) string {
+	if m := u.info(i).Model; m != "" {
+		return m
+	}
+	return sizeText(u.w.Disks[i].SizeGB) + " disk"
+}
+
+// diskLine is "1 TB · NVMe".
+func (u *UI) diskLine(i int) string {
+	s := sizeText(u.w.Disks[i].SizeGB)
+	if b := u.info(i).Bus; b != "" {
+		s += " · " + b
+	}
+	return s
 }
 
 func (u *UI) diskCard(gtx layout.Context, i int) layout.Dimensions {
 	d := u.w.Disks[i]
 	on := i == u.diskSel
+	usb := u.info(i).Bus == "USB"
 	gtx.Constraints.Min.X = gtx.Constraints.Max.X
 	return u.card(gtx, &u.diskCards[i], on, layout.UniformInset(18), func(gtx layout.Context) layout.Dimensions {
 		gtx.Constraints.Min.X = gtx.Constraints.Max.X
 		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return diskIcon(gtx, 48, on) }),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return diskIcon(gtx, 48, on, usb) }),
 			vgap(12),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				return u.label(gtx, stCard, colText, sizeText(d.SizeGB)+" disk")
+				return widget.Label{MaxLines: 1}.Layout(gtx, u.shaper, stCard.font(), stCard.size, u.diskTitle(i), material(gtx, colText))
 			}),
 			vgap(12),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return u.label(gtx, stSmall, colText2, u.diskLine(i)) }),
+			vgap(12),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return u.label(gtx, stMono12, colDim, d.Path) }),
+		)
+	})
+}
+
+// segColors are the disk bar's partitions, in turn; free space is the
+// field colour.
+var segColors = []func() color.NRGBA{
+	func() color.NRGBA { return colRing },
+	func() color.NRGBA { return rgb(0x4a4857) },
+	func() color.NRGBA { return rgb(0x6e6a80) },
+	func() color.NRGBA { return rgb(0x3f3d4b) },
+}
+
+// diskBar is what is on the chosen disk now: one segment per partition, and
+// their names and sizes under it.
+func (u *UI) diskBar(gtx layout.Context, i int) layout.Dimensions {
+	info := u.info(i)
+	segs := info.Segments()
+	gtx.Constraints.Min.X = gtx.Constraints.Max.X
+	return panel(gtx, 12, layout.Inset{Top: 16, Bottom: 16, Left: 18, Right: 18}, func(gtx layout.Context) layout.Dimensions {
+		gtx.Constraints.Min.X = gtx.Constraints.Max.X
+		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return layout.Flex{Spacing: layout.SpaceBetween}.Layout(gtx,
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						return u.label(gtx, stLabel, colText2, "On "+u.w.Disks[i].Path+" now")
+					}),
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						return u.label(gtx, stSmall, colDim, core.HumanSize(info.SizeBytes))
+					}),
+				)
+			}),
+			vgap(12),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				w, h := gtx.Constraints.Max.X, dp(gtx, 14)
+				defer clip.UniformRRect(image.Rect(0, 0, w, h), h/2).Push(gtx.Ops).Pop()
+				if len(segs) == 0 {
+					fillRect(gtx, image.Rect(0, 0, w, h), colField)
+					return layout.Dimensions{Size: image.Pt(w, h)}
+				}
+				gap := dp(gtx, 2)
+				avail := w - gap*(len(segs)-1)
+				x := 0
+				for n, sg := range segs {
+					sw := int(float64(avail) * float64(sg.SizeBytes) / float64(info.SizeBytes))
+					if sw < dp(gtx, 3) {
+						sw = dp(gtx, 3)
+					}
+					if n == len(segs)-1 || x+sw > w {
+						sw = w - x
+					}
+					c := colField
+					if !sg.Free {
+						c = segColors[n%len(segColors)]()
+					}
+					fillRect(gtx, image.Rect(x, 0, x+sw, h), c)
+					x += sw + gap
+				}
+				return layout.Dimensions{Size: image.Pt(w, h)}
+			}),
+			vgap(12),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				var parts []string
+				for _, sg := range segs {
+					parts = append(parts, sg.Kind+" · "+core.HumanSize(sg.SizeBytes))
+				}
+				switch {
+				case !info.Read:
+					parts = []string{"What is on this disk could not be read."}
+				case len(parts) == 0:
+					parts = []string{"No partitions"}
+				}
+				return u.labelLines(gtx, stTiny, colDim, 1.5, strings.Join(parts, "     "))
+			}),
 		)
 	})
 }
@@ -880,12 +1035,56 @@ func (u *UI) recovery(gtx layout.Context) layout.Dimensions {
 		}),
 		vgap(22),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			gtx.Constraints.Max.X = dp(gtx, 280)
-			return u.labelled(gtx, fmt.Sprintf("To check you saved it, type group %d", ask+1), u.rk, "", func(gtx layout.Context) layout.Dimensions {
-				return u.input(gtx, u.rk, stMonoField, 40, "", nil)
-			})
+			return layout.Flex{Alignment: layout.End}.Layout(gtx,
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					gtx.Constraints.Max.X = dp(gtx, 280)
+					return u.labelled(gtx, fmt.Sprintf("To check you saved it, type group %d", ask+1), u.rk, "", func(gtx layout.Context) layout.Dimensions {
+						return u.input(gtx, u.rk, stMonoField, 40, "", nil)
+					})
+				}),
+				layout.Rigid(layout.Spacer{Width: 14}.Layout),
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					txt := "Show as QR code"
+					if u.showQR {
+						txt = "Hide the QR code"
+					}
+					return u.qrToggle(gtx, txt)
+				}),
+				layout.Rigid(layout.Spacer{Width: 18}.Layout),
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					if !u.showQR {
+						return layout.Dimensions{}
+					}
+					// Drawn in the window only, like the key: never saved.
+					return qrCode(gtx, u.w.Choice.RecoveryKeyValue, 148)
+				}),
+			)
 		}),
 	)
+}
+
+// qrToggle is the small outlined button with the QR glyph.
+func (u *UI) qrToggle(gtx layout.Context, txt string) layout.Dimensions {
+	b := box{radius: 8, border: over(colWindow, colText, 0.1), bw: 1}
+	if gtx.Focused(&u.qrButton) {
+		b.border, b.ring, b.ringW = colAccent, focusRing, 3
+	}
+	return u.qrButton.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		gtx.Constraints.Min.Y = dp(gtx, 40)
+		return b.layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			return layout.Inset{Left: 14, Right: 14}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				gtx.Constraints.Min.X = 0
+				return layout.W.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+					gtx.Constraints.Min.Y = 0
+					return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
+						layout.Rigid(func(gtx layout.Context) layout.Dimensions { return qrGlyph(gtx, 14) }),
+						layout.Rigid(layout.Spacer{Width: 8}.Layout),
+						layout.Rigid(func(gtx layout.Context) layout.Dimensions { return u.label(gtx, stSmall500, colText2, txt) }),
+					)
+				})
+			})
+		})
+	})
 }
 
 func (u *UI) keyGroup(gtx layout.Context, i int, g string, asked bool) layout.Dimensions {
@@ -928,7 +1127,14 @@ func (u *UI) summary(gtx layout.Context) layout.Dimensions {
 	}
 	acct := c.Username
 	if c.Github != "" {
-		acct += " · SSH keys from github.com/" + c.Github
+		keys := "SSH keys"
+		if g := u.ghState; g.answered == c.Github && g.err == nil && g.n > 0 {
+			keys = strconv.Itoa(g.n) + " SSH keys"
+			if g.n == 1 {
+				keys = "1 SSH key"
+			}
+		}
+		acct += " · " + keys + " from github.com/" + c.Github
 	}
 	enc := "Off"
 	encPage := pEncrypt
@@ -943,9 +1149,12 @@ func (u *UI) summary(gtx layout.Context) layout.Dimensions {
 		enc = "On, unlocked by the TPM"
 	}
 	diskVal := c.Disk
-	for _, d := range u.w.Disks {
+	for i, d := range u.w.Disks {
 		if d.Path == c.Disk {
 			diskVal = sizeText(d.SizeGB) + " · "
+			if m := u.info(i).Model; m != "" {
+				diskVal = m + " · " + diskVal
+			}
 		}
 	}
 	rows := []row{
@@ -1037,7 +1246,7 @@ func (u *UI) installing(gtx layout.Context) layout.Dimensions {
 				o := op.Offset(pt(gtx, -44, -30)).Push(gtx.Ops)
 				glow(gtx, 200, colAccent, 0.12)
 				o.Pop()
-				return mark(gtx, 112, true, 1)
+				return mark(gtx, 112, true, 1, 1+0.12*breath(u.now()))
 			}),
 			vgap(22),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -1054,9 +1263,20 @@ func (u *UI) installing(gtx layout.Context) layout.Dimensions {
 				gtx.Constraints.Min.X = gtx.Constraints.Max.X
 				return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						// The time estimate of the mocks comes with
-						// step 3 of the design note.
-						return u.label(gtx, stSmall500, colText, core.Steps[cur].Name)
+						gtx.Constraints.Min.X = gtx.Constraints.Max.X
+						return layout.Flex{Spacing: layout.SpaceBetween}.Layout(gtx,
+							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+								return u.label(gtx, stSmall500, colText, core.Steps[cur].Name)
+							}),
+							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+								// Nothing until the active system has
+								// been installing for 30 seconds.
+								if left, ok := u.estimate(); ok {
+									return u.label(gtx, stSmall, colDim, core.RemainingText(left))
+								}
+								return layout.Dimensions{}
+							}),
+						)
 					}),
 					vgap(8),
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -1119,6 +1339,16 @@ func (u *UI) installing(gtx layout.Context) layout.Dimensions {
 			}),
 		)
 	})
+}
+
+// estimate is how long the install has left, once there is one.
+func (u *UI) estimate() (time.Duration, bool) {
+	s := &u.install
+	if s.started.IsZero() || s.activeAt.IsZero() {
+		return 0, false
+	}
+	now := u.now()
+	return core.EstimateRemaining(s.step, now.Sub(s.started), now.Sub(s.activeAt), s.encrypt)
 }
 
 func (u *UI) stageRow(gtx layout.Context, i, cur int, phase float32) layout.Dimensions {
@@ -1196,7 +1426,7 @@ func (u *UI) failed(gtx layout.Context) layout.Dimensions {
 					}),
 					vgap(10),
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						return u.labelLines(gtx, stBody, colText2, 1.5, fmt.Sprintf("It stopped at \"%s\": %s. Nothing was started twice; restart the computer to try again.", stage, why))
+						return u.labelLines(gtx, stBody, colText2, 1.5, fmt.Sprintf("It stopped at \"%s\": %s. Save the log to report it, or restart the computer to try again.", stage, why))
 					}),
 					vgap(18),
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -1214,7 +1444,20 @@ func (u *UI) failed(gtx layout.Context) layout.Dimensions {
 			gtx.Constraints.Min.X = gtx.Constraints.Max.X
 			dims := layout.Inset{Top: 18, Bottom: 18, Left: 24, Right: 24}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				gtx.Constraints.Min.X = gtx.Constraints.Max.X
-				return layout.Flex{Spacing: layout.SpaceStart}.Layout(gtx,
+				return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						return u.button(gtx, &u.saveLog, btnGhost, "Save the log", u.hooks.saveLog != nil)
+					}),
+					layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+						gtx.Constraints.Min.X = gtx.Constraints.Max.X
+						return layout.Inset{Left: 8, Right: 8}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+							return widget.Label{MaxLines: 2}.Layout(gtx, u.shaper, stTiny.font(), stTiny.size, u.savedTo, material(gtx, colText2))
+						})
+					}),
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						return u.button(gtx, &u.terminal, btnSecondary, "Open a terminal", u.hooks.terminal != nil)
+					}),
+					layout.Rigid(layout.Spacer{Width: 10}.Layout),
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 						return u.button(gtx, &u.restart, btnPrimary, "Restart", true)
 					}),
@@ -1254,7 +1497,7 @@ func (u *UI) done(gtx layout.Context) layout.Dimensions {
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 						glow(gtx, 168, colAccent, 0.16)
 						o := op.Offset(pt(gtx, 18, 18)).Push(gtx.Ops)
-						mark(gtx, 132, false, 1)
+						mark(gtx, 132, false, 1, 0)
 						o.Pop()
 						return layout.Dimensions{Size: pt(gtx, 168, 168)}
 					}),

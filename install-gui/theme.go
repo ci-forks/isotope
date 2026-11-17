@@ -36,6 +36,7 @@ var (
 	colErrorText = rgb(0xf7a3b3)
 	colDisabled  = rgb(0x3c3a49)
 	colKeyBox    = rgb(0x15141c)
+	colWarn      = rgb(0xe0af68) // the palette's yellow: a warning, not an error
 )
 
 func rgb(v uint32) color.NRGBA {

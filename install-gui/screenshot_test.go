@@ -48,6 +48,22 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
+// fixtureDisks are what lsblk and sysfs say about the fixture's disks: a
+// laptop disk with Windows, a Linux data disk, a USB stick.
+var fixtureDisks = map[string]core.DiskInfo{
+	"/dev/nvme0n1": {Model: "Samsung SSD 980 PRO 1TB", Bus: "NVMe", SizeBytes: 1000204886016, Read: true, Partitions: []core.Partition{
+		{Name: "nvme0n1p1", SizeBytes: 536870912, FSType: "vfat", Label: "SYSTEM", PartLabel: "EFI system partition"},
+		{Name: "nvme0n1p2", SizeBytes: 16777216, PartLabel: "Microsoft reserved partition"},
+		{Name: "nvme0n1p3", SizeBytes: 620000000000, FSType: "ntfs", Label: "Windows", PartLabel: "Basic data partition"},
+	}},
+	"/dev/sda": {Model: "WDC WD20EZAZ-00G", Bus: "SATA", SizeBytes: 2000398934016, Read: true, Partitions: []core.Partition{
+		{Name: "sda1", SizeBytes: 2000397885440, FSType: "ext4", Label: "data"},
+	}},
+	"/dev/sdb": {Model: "SanDisk Ultra", Bus: "USB", SizeBytes: 64023257088, Read: true, Partitions: []core.Partition{
+		{Name: "sdb1", SizeBytes: 64022208512, FSType: "exfat", Label: "SANDISK"},
+	}},
+}
+
 var testKey = "cbdefghi-jklnrtuv-vutrnlkj-ihgfedcb-bcdtrnhe-gkulvfij-nrdcebtv-lhjkfgiu"
 
 // fixture is a UI on a wizard with three disks, the curated lists and fixed
@@ -64,7 +80,16 @@ func fixture(t *testing.T, trustedBoot bool) *UI {
 		relaunch: func(core.GUIState) { t.Fatal("relaunch") },
 		poweroff: func() {},
 		reboot:   func() {},
+		describe: func(path string) core.DiskInfo { return fixtureDisks[path] },
+		saveLog:  func() (string, error) { return "/media/STICK/isotope-install.log", nil },
+		terminal: func() {},
 	})
+	f, err := os.Open("testdata/zone.tab")
+	if err != nil {
+		t.Fatal(err)
+	}
+	u.zoneCoords = core.ParseZoneTab(f)
+	f.Close()
 	at := time.Date(2026, 11, 17, 12, 4, 0, 0, time.UTC)
 	u.now = func() time.Time { return at }
 	u.version = "Isotope v0.0.20 · sway"
@@ -104,6 +129,8 @@ func toAccount(t *testing.T, u *UI) {
 	set(u.pw, "hunter22hunter")
 	set(u.pw2, "hunter22hunter")
 	set(u.gh, "alex")
+	// GitHub answered: three keys.
+	u.ghState.asked, u.ghState.answered, u.ghState.n = "alex", "alex", 3
 }
 
 func toEncrypt(t *testing.T, u *UI) {
@@ -144,6 +171,9 @@ func toInstalling(t *testing.T, u *UI) {
 		}
 	}
 	u.install.show = true
+	// Four minutes in, ninety seconds into the active system.
+	u.install.started = u.now().Add(-4 * time.Minute)
+	u.install.activeAt = u.now().Add(-90 * time.Second)
 }
 
 var pages = []struct {
@@ -175,6 +205,33 @@ var pages = []struct {
 		u.apply(core.Event{Kind: core.EventStep, Step: len(core.Steps) - 1})
 		u.apply(core.Event{Kind: core.EventFinished})
 	}},
+	{"2-keyboard-zone-search", false, func(t *testing.T, u *UI) {
+		toKeyboard(t, u)
+		set(u.tzField, "new")
+		u.filterZones()
+	}},
+	{"3-account-github-unreachable", false, func(t *testing.T, u *UI) {
+		toAccount(t, u)
+		u.ghState.err = errors.New("dial tcp: no route to host")
+	}},
+	{"4-disk-usb", false, func(t *testing.T, u *UI) {
+		toAccount(t, u)
+		mustNext(t, u, pDisk)
+		u.diskSel = 2
+	}},
+	{"6-recovery-key-qr", false, func(t *testing.T, u *UI) {
+		toRecovery(t, u)
+		u.showQR = true
+	}},
+	{"8-installing-early", false, func(t *testing.T, u *UI) {
+		toInstalling(t, u)
+		u.install.activeAt = u.now().Add(-20 * time.Second)
+		u.install.show = false
+	}},
+	{"scaled-150", false, func(t *testing.T, u *UI) {
+		toAccount(t, u)
+		u.scale = 1.5
+	}},
 	{"account-errors", false, func(t *testing.T, u *UI) {
 		toAccount(t, u)
 		set(u.user, "Alex")
@@ -189,6 +246,11 @@ func TestScreenshots(t *testing.T) {
 	}
 	probe, err := headless.NewWindow(8, 8)
 	if err != nil {
+		// CI sets ISOTOPE_GUI_REQUIRE_SCREENSHOTS, so a runner without
+		// Mesa fails rather than passing with nothing compared.
+		if os.Getenv("ISOTOPE_GUI_REQUIRE_SCREENSHOTS") == "1" {
+			t.Fatalf("no headless GPU context: %v", err)
+		}
 		t.Skipf("no headless GPU context (EGL with Mesa's surfaceless platform): %v", err)
 	}
 	probe.Release()

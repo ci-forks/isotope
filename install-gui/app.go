@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"image"
 	"strings"
@@ -8,9 +9,13 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"gioui.org/gesture"
 	"gioui.org/io/event"
 	"gioui.org/io/key"
+	"gioui.org/io/pointer"
 	"gioui.org/layout"
+	"gioui.org/op"
+	"gioui.org/op/clip"
 	"gioui.org/text"
 	"gioui.org/widget"
 
@@ -102,6 +107,16 @@ type hooks struct {
 	reboot   func()
 	// started is called once the first frame is drawn.
 	started func()
+	// describe says what is on a disk now (core.DescribeDisk).
+	describe func(path string) core.DiskInfo
+	// githubKeys counts a GitHub user's keys (core.CountGithubKeys).
+	githubKeys func(ctx context.Context, name string) (int, error)
+	// saveLog saves the install log and says where it went.
+	saveLog func() (string, error)
+	// terminal opens a terminal, or leaves for the rescue shell.
+	terminal func()
+	// invalidate asks for a frame from another goroutine.
+	invalidate func()
 }
 
 // UI is the graphical installer: the window's state and the wizard it
@@ -131,21 +146,26 @@ type UI struct {
 
 	kbSearch, kbTry *field
 	kbList          widget.List
-	kbRows          []widget.Clickable
+	kbRows          []rowClick
 	kbSel           int
 	kbShown         []int
 	kbApplied       bool
 	tzField         *field
 	tzList          widget.List
-	tzRows          []widget.Clickable
+	tzRows          []rowClick
 	tzSel           int
 	tzShown         []int
+	zoneCoords      map[string]core.Coord
+	mapClick        gesture.Click
+	mapSize         image.Point
 
 	host, user, pw, pw2, gh *field
+	ghState                 githubState
 	acctList                widget.List
 	encList                 widget.List
 
 	diskSel   int
+	diskInfo  []core.DiskInfo
 	diskCards []widget.Clickable
 	diskList  widget.List
 	rescan    widget.Clickable
@@ -156,13 +176,36 @@ type UI struct {
 	pp, pp2        *field
 	encErr         string
 	rk             *field
+	showQR         bool
+	qrButton       widget.Clickable
 	change         [6]widget.Clickable
 	summaryChanges []gpage
 
-	install installState
-	details widget.Clickable
-	logList widget.List
-	restart widget.Clickable
+	install  installState
+	details  widget.Clickable
+	logList  widget.List
+	restart  widget.Clickable
+	saveLog  widget.Clickable
+	terminal widget.Clickable
+	savedTo  string
+}
+
+// githubState is the account page's key lookup: the name typed, when, and
+// what GitHub said for which name.
+type githubState struct {
+	typed    string
+	typedAt  time.Time
+	asked    string
+	answered string
+	n        int
+	err      error
+	results  chan githubResult
+}
+
+type githubResult struct {
+	name string
+	n    int
+	err  error
 }
 
 // installState is what the installing page shows, fed by core.Install.
@@ -176,6 +219,10 @@ type installState struct {
 	user     string
 	show     bool
 	events   chan core.Event
+	// started is when the install began, activeAt when the active system
+	// started installing: the estimate needs both.
+	started  time.Time
+	activeAt time.Time
 }
 
 const logKeep = 200
@@ -202,6 +249,7 @@ func newUI(w *core.Wizard, shaper *text.Shaper, h hooks) *UI {
 	u.acctList.Axis = layout.Vertical
 	u.encList.Axis = layout.Vertical
 	u.install.events = make(chan core.Event, 256)
+	u.ghState.results = make(chan githubResult, 4)
 	u.runLayout = core.DefaultLayout
 	if w != nil {
 		u.setWizard(w)
@@ -217,11 +265,13 @@ func (u *UI) setWizard(w *core.Wizard) {
 	u.tzSel = w.TimezoneIndex()
 	if u.tzSel >= 0 {
 		u.tzField.ed.SetText(w.Zones[u.tzSel])
+		u.tzField.ed.SetCaret(u.tzField.ed.Len(), u.tzField.ed.Len())
 	}
 	u.host.ed.SetText(w.HostnameValue())
-	u.kbRows = make([]widget.Clickable, len(w.Keyboards))
-	u.tzRows = make([]widget.Clickable, len(w.Zones))
+	u.kbRows = make([]rowClick, len(w.Keyboards))
+	u.tzRows = make([]rowClick, len(w.Zones))
 	u.diskCards = make([]widget.Clickable, len(w.Disks))
+	u.describeDisks()
 	u.scrollToSelection()
 	// Continue has the focus, so Enter goes on from the first page.
 	u.refocus()
@@ -306,6 +356,7 @@ func (u *UI) next() {
 		u.hooks.confirm(u.w.Choice)
 		u.install.encrypt = u.w.Choice.Encrypt
 		u.install.user = u.w.Choice.Username
+		u.install.started = u.now()
 		u.goTo(pInstalling)
 	case pDone:
 		u.hooks.reboot()
@@ -454,6 +505,10 @@ func (u *UI) nextAccount() {
 	}
 	if err := w.SetGithub(u.gh.ed.Text()); err != nil && len(w.Disks) > 0 {
 		fail(u.gh, err)
+	} else {
+		// The keys are checked before Continue too, but never wait for:
+		// they are optional.
+		u.lookupGithub(true)
 	}
 	if first != nil {
 		u.focus = &first.ed
@@ -480,6 +535,19 @@ func (u *UI) rescanDisks() {
 	u.w.Disks = disks
 	u.diskCards = make([]widget.Clickable, len(disks))
 	u.diskSel = 0
+	u.describeDisks()
+}
+
+// describeDisks reads what is on each disk now, for the cards, the bar and
+// the warning.
+func (u *UI) describeDisks() {
+	u.diskInfo = make([]core.DiskInfo, len(u.w.Disks))
+	if u.hooks.describe == nil {
+		return
+	}
+	for i, d := range u.w.Disks {
+		u.diskInfo[i] = u.hooks.describe(d.Path)
+	}
 }
 
 func (u *UI) nextDisk() {
@@ -557,16 +625,62 @@ func (u *UI) nextRecovery() {
 
 // --- install ----------------------------------------------------------------
 
-// drain applies the install's events that arrived since the last frame.
+// drain applies the install's events and the GitHub answers that arrived
+// since the last frame.
 func (u *UI) drain() {
 	for {
 		select {
 		case e := <-u.install.events:
 			u.apply(e)
+		case r := <-u.ghState.results:
+			u.ghState.answered, u.ghState.n, u.ghState.err = r.name, r.n, r.err
 		default:
 			return
 		}
 	}
+}
+
+// githubDelay is how long the name has to stay the same before GitHub is
+// asked, so typing does not send a request per letter.
+const githubDelay = 700 * time.Millisecond
+
+// lookupGithub asks GitHub how many keys the typed name has, once per
+// name, after githubDelay or at once when now is set.
+func (u *UI) lookupGithub(now bool) {
+	g := &u.ghState
+	name := strings.TrimSpace(u.gh.ed.Text())
+	if u.hooks.githubKeys == nil || name == "" || name == g.asked || core.ValidateGithub(name) != nil {
+		return
+	}
+	if !now && u.now().Sub(g.typedAt) < githubDelay {
+		return
+	}
+	g.asked = name
+	look, results, inval := u.hooks.githubKeys, g.results, u.hooks.invalidate
+	go func() {
+		n, err := look(context.Background(), name)
+		results <- githubResult{name, n, err}
+		if inval != nil {
+			inval()
+		}
+	}()
+}
+
+// githubStatus is the line under the GitHub field: whether there is one, its
+// words, and whether it is good news.
+func (u *UI) githubStatus() (string, bool, bool) {
+	g := &u.ghState
+	name := strings.TrimSpace(u.gh.ed.Text())
+	switch {
+	case name == "" || core.ValidateGithub(name) != nil:
+		return "", false, false
+	case g.answered == name:
+		txt, ok := core.GithubKeysText(g.n, g.err)
+		return txt, ok, true
+	case g.asked == name:
+		return "Checking GitHub", false, true
+	}
+	return "", false, false
 }
 
 func (u *UI) apply(e core.Event) {
@@ -574,6 +688,9 @@ func (u *UI) apply(e core.Event) {
 	if u.page < pInstalling {
 		// An install that needed no questions (a seeded config).
 		u.goTo(pInstalling)
+	}
+	if s.started.IsZero() {
+		s.started = u.now()
 	}
 	switch e.Kind {
 	case core.EventLine:
@@ -583,6 +700,9 @@ func (u *UI) apply(e core.Event) {
 		}
 	case core.EventStep:
 		s.step = e.Step
+		if s.step >= core.ActiveStep && s.activeAt.IsZero() {
+			s.activeAt = u.now()
+		}
 	case core.EventFinished:
 		s.finished = true
 		u.goTo(pDone)
@@ -656,6 +776,19 @@ func (u *UI) update(gtx layout.Context) {
 	if u.details.Clicked(gtx) {
 		u.install.show = !u.install.show
 	}
+	if u.saveLog.Clicked(gtx) && u.hooks.saveLog != nil {
+		if where, err := u.hooks.saveLog(); err != nil {
+			u.savedTo = sentence(err)
+		} else {
+			u.savedTo = "Saved to " + where
+		}
+	}
+	if u.terminal.Clicked(gtx) && u.hooks.terminal != nil {
+		u.hooks.terminal()
+	}
+	if u.qrButton.Clicked(gtx) {
+		u.showQR = !u.showQR
+	}
 	submitted := func(f *field) bool {
 		hit := false
 		for {
@@ -670,6 +803,15 @@ func (u *UI) update(gtx layout.Context) {
 	}
 	switch u.page {
 	case pKeyboard:
+		for {
+			e, ok := u.mapClick.Update(gtx.Source)
+			if !ok {
+				break
+			}
+			if e.Kind == gesture.KindClick {
+				u.clickMap(e.Position)
+			}
+		}
 		before := u.kbSearch.ed.Text()
 		if submitted(u.kbSearch) && u.kbSel >= 0 {
 			u.pickKeyboard(u.kbSel)
@@ -694,7 +836,7 @@ func (u *UI) update(gtx layout.Context) {
 			}
 		}
 		for _, i := range u.kbShown {
-			if u.kbRows[i].Clicked(gtx) {
+			if u.kbRows[i].clicked(gtx) {
 				u.pickKeyboard(i)
 			}
 		}
@@ -726,7 +868,7 @@ func (u *UI) update(gtx layout.Context) {
 			}
 		}
 		for _, i := range u.tzShown {
-			if u.tzRows[i].Clicked(gtx) {
+			if u.tzRows[i].clicked(gtx) {
 				u.pickZone(i)
 			}
 		}
@@ -736,6 +878,13 @@ func (u *UI) update(gtx layout.Context) {
 				u.next()
 				return
 			}
+		}
+		if t := strings.TrimSpace(u.gh.ed.Text()); t != u.ghState.typed {
+			u.ghState.typed, u.ghState.typedAt = t, u.now()
+		}
+		u.lookupGithub(false)
+		if u.ghState.typed != "" && u.ghState.asked != u.ghState.typed {
+			gtx.Execute(op.InvalidateCmd{At: u.ghState.typedAt.Add(githubDelay)})
 		}
 	case pDisk:
 		for i := range u.diskCards {
@@ -817,3 +966,36 @@ func step(shown []int, sel int, down bool, l *widget.List) int {
 
 // pt is a convenience for image.Pt in dp.
 func pt(gtx layout.Context, x, y float32) image.Point { return image.Pt(dp(gtx, x), dp(gtx, y)) }
+
+// zoneFiltering says whether the zone field holds a search rather than the
+// chosen zone: the map gives way to the list of matches.
+func (u *UI) zoneFiltering() bool {
+	t := strings.TrimSpace(u.tzField.ed.Text())
+	return t != "" && (u.tzSel < 0 || t != u.w.Zones[u.tzSel])
+}
+
+// rowClick is a row of the layout and zone lists: clickable, but not a Tab
+// stop, so Tab goes from the search field to "Try it" and the zone field
+// instead of through every row. The arrow keys move in the lists.
+type rowClick struct{ c gesture.Click }
+
+func (r *rowClick) layout(gtx layout.Context, w layout.Widget) layout.Dimensions {
+	dims := w(gtx)
+	defer clip.Rect(image.Rectangle{Max: dims.Size}).Push(gtx.Ops).Pop()
+	pointer.CursorPointer.Add(gtx.Ops)
+	r.c.Add(gtx.Ops)
+	return dims
+}
+
+func (r *rowClick) clicked(gtx layout.Context) bool {
+	hit := false
+	for {
+		e, ok := r.c.Update(gtx.Source)
+		if !ok {
+			return hit
+		}
+		if e.Kind == gesture.KindClick {
+			hit = true
+		}
+	}
+}

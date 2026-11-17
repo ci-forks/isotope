@@ -4,6 +4,7 @@ import (
 	"image"
 	"image/color"
 	"math"
+	"time"
 
 	"gioui.org/f32"
 	"gioui.org/layout"
@@ -116,7 +117,7 @@ type tri struct {
 	col color.NRGBA
 }
 
-func markTris(lit bool) []tri {
+func markTris(lit bool, push float32) []tri {
 	t := []tri{
 		{[]f32.Point{{X: 54.7, Y: 41.9}, {X: 54.7, Y: 4.3}, {X: 87.3, Y: 23.1}}, colGlow},
 		{[]f32.Point{{X: 51.4, Y: 50.0}, {X: 83.9, Y: 31.2}, {X: 83.9, Y: 68.8}}, colAccent},
@@ -128,21 +129,36 @@ func markTris(lit bool) []tri {
 	if lit {
 		// The installing page: the first triangle pushed out and lit, as
 		// the splash does at the flash.
-		t[0] = tri{[]f32.Point{{X: 58.7, Y: 39.6}, {X: 58.7, Y: 2.0}, {X: 91.3, Y: 20.8}}, colText}
+		t[0].col = colText
 	}
+	// The push moves the first triangle out along the line from the
+	// centre, (4, -2.3) per unit: the mocks' installing mark is one unit.
+	pts := make([]f32.Point, 3)
+	for i, p := range t[0].pts {
+		pts[i] = f32.Pt(p.X+4*push, p.Y-2.3*push)
+	}
+	t[0].pts = pts
 	return t
 }
 
+// breath is the splash's breathing of the pushed triangle: a slow sine,
+// 2.4 s a cycle, at time t.
+func breath(t time.Time) float32 {
+	s := float64(t.UnixMilli()%2400) / 2400
+	return float32(math.Sin(s * 2 * math.Pi))
+}
+
 // mark draws the mark in a square of size dp. lit draws the installing
-// page's variant, whose viewBox is -8..108 so the pushed triangle fits.
-func mark(gtx layout.Context, size float32, lit bool, opacity float32) layout.Dimensions {
+// page's variant, whose viewBox is -8..108 so the pushed triangle fits;
+// push is how far out the first triangle is (1 on the installing page).
+func mark(gtx layout.Context, size float32, lit bool, opacity, push float32) layout.Dimensions {
 	px := fdp(gtx, size)
 	scale, off := px/100, f32.Pt(0, 0)
 	if lit {
 		scale = px / 116
 		off = f32.Pt(8*scale, 8*scale)
 	}
-	for _, t := range markTris(lit) {
+	for _, t := range markTris(lit, push) {
 		c := t.col
 		if opacity < 1 {
 			c = over(colDesk2, c, opacity)
@@ -289,9 +305,8 @@ func keyIcon(gtx layout.Context, size float32) layout.Dimensions {
 	return layout.Dimensions{Size: image.Pt(s, s)}
 }
 
-// diskIcon is the drive drawn on each disk card. Telling a USB stick from a
-// drive needs the bus from sysfs, which comes with step 3 of the design note.
-func diskIcon(gtx layout.Context, size float32, selected bool) layout.Dimensions {
+// diskIcon is the drive drawn on each disk card; usb draws a stick.
+func diskIcon(gtx layout.Context, size float32, selected, usb bool) layout.Dimensions {
 	px := fdp(gtx, size)
 	k := px / 48
 	edge, led := colRing, colRing
@@ -301,13 +316,20 @@ func diskIcon(gtx layout.Context, size float32, selected bool) layout.Dimensions
 	rect := func(x, y, w, h float32) image.Rectangle {
 		return image.Rect(int(x*k+0.5), int(y*k+0.5), int((x+w)*k+0.5), int((y+h)*k+0.5))
 	}
-	r := rect(6, 10, 36, 28)
-	fillRRect(gtx, r, int(5*k), colField)
-	strokeRRect(gtx, r, int(5*k), 2*k, edge)
-	d := int(5 * k)
-	cx, cy := int(34*k), int(31*k)
-	fillRRect(gtx, image.Rect(cx-d/2, cy-d/2, cx+d/2+1, cy+d/2+1), d/2+1, led)
-	fillRect(gtx, rect(12, 17, 18, 2), colRing)
+	if usb {
+		r := rect(14, 6, 20, 36)
+		fillRRect(gtx, r, int(4*k), colField)
+		strokeRRect(gtx, r, int(4*k), 2*k, edge)
+		fillRRect(gtx, rect(19, 2, 10, 6), int(k), edge)
+	} else {
+		r := rect(6, 10, 36, 28)
+		fillRRect(gtx, r, int(5*k), colField)
+		strokeRRect(gtx, r, int(5*k), 2*k, edge)
+		d := int(5 * k)
+		cx, cy := int(34*k), int(31*k)
+		fillRRect(gtx, image.Rect(cx-d/2, cy-d/2, cx+d/2+1, cy+d/2+1), d/2+1, led)
+		fillRect(gtx, rect(12, 17, 18, 2), colRing)
+	}
 	s := int(px + 0.5)
 	return layout.Dimensions{Size: image.Pt(s, s)}
 }

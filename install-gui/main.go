@@ -8,7 +8,9 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"strings"
@@ -43,8 +45,16 @@ func main() {
 				fmt.Fprintf(os.Stderr, "isotope-install-gui: reboot: %v\n", err)
 			}
 		},
-		started: func() { _ = os.WriteFile(core.GUIStartedPath(), nil, 0o600) },
+		started:  func() { _ = os.WriteFile(core.GUIStartedPath(), nil, 0o600) },
+		describe: func(path string) core.DiskInfo { return core.DescribeDisk(sysBlock, path) },
+		githubKeys: func(ctx context.Context, name string) (int, error) {
+			return core.CountGithubKeys(ctx, http.DefaultClient, name)
+		},
+		saveLog:    saveLog,
+		terminal:   openTerminal,
+		invalidate: win.Invalidate,
 	})
+	u.zoneCoords = core.ZoneCoords()
 	u.version = versionLine("/etc/isotope/release")
 	u.runLayout = orDefault(os.Getenv("XKB_DEFAULT_LAYOUT"), core.DefaultLayout)
 	u.runVariant = os.Getenv("XKB_DEFAULT_VARIANT")
@@ -90,6 +100,33 @@ func main() {
 		}
 	}()
 	app.Main()
+}
+
+// saveLog copies the install log to a mounted USB stick, or leaves it in
+// /run when there is none, and says where it is.
+func saveLog() (string, error) {
+	var dirs []string
+	if f, err := os.Open("/proc/mounts"); err == nil {
+		dirs = core.USBMountPoints(f, sysBlock)
+		f.Close()
+	}
+	return core.SaveInstallLog(core.InstallLogPath(), dirs)
+}
+
+// footPath is the terminal "Open a terminal" starts as a second window in
+// cage, where the image has it (sway and niri). Elsewhere (i3, cosmic) the
+// window leaves for the text installer's rescue shell on tty1.
+var footPath = "/usr/bin/foot"
+
+func openTerminal() {
+	if _, err := os.Stat(footPath); err == nil {
+		cmd := exec.Command(footPath)
+		if err := cmd.Start(); err == nil {
+			go func() { _ = cmd.Wait() }()
+			return
+		}
+	}
+	os.Exit(core.GUIShellExit)
 }
 
 // relaunch saves the answers and asks isotope-install-ui for a new cage with
@@ -138,13 +175,24 @@ func install(win *app.Window, u *UI, wizards chan<- core.Wizard, confirmed <-cha
 	defer in.Close()
 	_ = os.WriteFile(core.InstallRunningPath(), nil, 0o600)
 	defer os.Remove(core.InstallRunningPath())
+	// The whole log, for "Save the log": the window keeps only the end.
+	logFile, err := os.OpenFile(core.InstallLogPath(), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err == nil {
+		defer logFile.Close()
+	}
 
 	// The last event waits for the cleanup, so the passphrase file is gone
 	// before the window says the install is over.
 	var last *core.Event
 	in.Run(func(e core.Event) {
+		if e.Kind == core.EventLine && logFile != nil {
+			fmt.Fprintln(logFile, e.Line)
+		}
 		if e.Kind == core.EventFinished || e.Kind == core.EventFailed {
 			last = &e
+			if e.Kind == core.EventFailed && logFile != nil && e.Err != nil {
+				fmt.Fprintf(logFile, "isotope-install-gui: %v\n", e.Err)
+			}
 			return
 		}
 		send(e)

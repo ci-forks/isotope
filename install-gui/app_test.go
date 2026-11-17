@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"image"
 	"testing"
 
 	"github.com/kairos-community/isotope/install-ui/core"
@@ -150,5 +152,47 @@ func TestSizeText(t *testing.T) {
 		if got := sizeText(gb); got != want {
 			t.Errorf("sizeText(%d) = %q, want %q", gb, got, want)
 		}
+	}
+}
+
+func TestMapClickPicksTheNearestCity(t *testing.T) {
+	u := fixture(t, false)
+	toKeyboard(t, u)
+	u.mapSize = image.Pt(360, 180)
+	// Boston, in a 360x180 map: one pixel a degree.
+	u.clickMap(image.Pt(109, 48))
+	if z := u.w.Zones[u.tzSel]; z != "America/New_York" {
+		t.Fatalf("picked %s", z)
+	}
+	if u.tzField.ed.Text() != "America/New_York" || u.zoneFiltering() {
+		t.Fatal("the field does not show the picked zone")
+	}
+}
+
+func TestGithubLookupIsDebouncedAndOnce(t *testing.T) {
+	u := fixture(t, false)
+	calls := make(chan string, 4)
+	u.hooks.githubKeys = func(_ context.Context, name string) (int, error) { calls <- name; return 2, nil }
+	toAccount(t, u)
+	u.ghState = githubState{results: u.ghState.results}
+	set(u.gh, "sam")
+	u.ghState.typed, u.ghState.typedAt = "sam", u.now()
+	u.lookupGithub(false)
+	if len(calls) != 0 {
+		t.Fatal("asked GitHub while the name was being typed")
+	}
+	u.lookupGithub(true)
+	if got := <-calls; got != "sam" {
+		t.Fatalf("asked for %q", got)
+	}
+	u.lookupGithub(true)
+	if len(calls) != 0 {
+		t.Fatal("asked twice for one name")
+	}
+	r := <-u.ghState.results
+	u.ghState.results <- r
+	u.drain()
+	if txt, good, ok := u.githubStatus(); !ok || !good || txt != "2 keys found" {
+		t.Fatalf("status %q %v %v", txt, good, ok)
 	}
 }
