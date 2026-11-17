@@ -19,6 +19,8 @@
  * no arguments in the initramfs, where it runs until SIGTERM at switch-root, and
  * with --duration=3s on the booted system, where getty or the display manager
  * waits for it. kairos.splash=0 on the kernel command line turns it off.
+ * In the initramfs, D (or isotope.bootvine on the command line) hands the
+ * screen to bootvine, which shows the boot's systemd jobs as they run.
  * C99, libc and Linux headers only.
  */
 #ifndef _POSIX_C_SOURCE
@@ -37,12 +39,15 @@
 #include <math.h>
 #include <linux/fb.h>
 #include <linux/kd.h>
+#include <linux/vt.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <sys/un.h>
+#include <sys/wait.h>
+#include <errno.h>
 #include <termios.h>
 #include <time.h>
 #include <unistd.h>
@@ -245,6 +250,14 @@ static void flush_grid(const grid_t *cur, grid_t *prev) {
 static volatile sig_atomic_t g_exit = 0;
 static void on_sig(int s) { (void)s; g_exit = 1; }
 
+/* The D key and bootvine, defined with the password agent below. */
+static int g_hotkey, g_want_bootvine;
+static int hotkey_offer(void);
+static void hotkey_read(void);
+static int bootvine_start(void);
+static void kb_restore(void);
+static void tty_text(void);
+
 static int text_run(double duration) {
     struct winsize ws; int rows = 24, cols = 80;
     if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == 0 && ws.ws_row && ws.ws_col) {
@@ -266,11 +279,23 @@ static int text_run(double duration) {
     int fr_l = left - 3, fr_r = left + ART_COLS + 2;
     int fr_t = top - 1,  fr_b = sts_row + 1;
 
+    /* The text renderer is never a password agent: the console agent's gate
+       stops it before the console asks, so reading tty1 here takes no
+       passphrase keys. */
+    g_hotkey = hotkey_offer();
+    static const char *HINT = "Press D for boot details";
+
     double t0 = now_sec();
     int frame = 0;
     while (!g_exit) {
         double tn = now_sec(), t = tn - t0;
         if (duration > 0 && t >= duration) break;
+        hotkey_read();
+        if (g_want_bootvine) {
+            g_want_bootvine = 0;
+            if (bootvine_start() == 0) break;
+            g_hotkey = 0;
+        }
 
         uint32_t rng = (uint32_t)(frame * 2654435761u) ^ 0x9e3779b9u;
         g_clear(&cur);
@@ -283,6 +308,7 @@ static int text_run(double duration) {
         paint_logo(&cur, top, left, scan, flick, gl, &rng);
         paint_center(&cur, tag_row, TAG, TOKYO[flick ? A_CHROME : A_DIM]);
         if (g_ver[0]) paint_center(&cur, ver_row, g_ver, TOKYO[A_CHROME]);
+        if (g_hotkey && rows - 2 > fr_b) paint_center(&cur, rows - 2, HINT, TOKYO[A_DIM]);
 
         /* typewritten boot line, cycling through the phrases, blinking cursor */
         if (t > GLITCH_SEC * 0.5) {
@@ -310,6 +336,7 @@ static int text_run(double duration) {
        handoff (switch-root, or the login prompt) starts clean. */
     fputs("\033[0m\033[?25h\033[?1049l\033[H\033[2J\033[3J", stdout); fflush(stdout);
     free(cur.cells); free(prev.cells);
+    kb_restore();
     return 0;
 }
 
@@ -524,6 +551,7 @@ typedef struct {
     int ps;              /* panel text scale */
     int px, py, pw, ph;  /* panel box */
     int title_y, field_y, field_h, note_y;
+    int hint_y, hint_h;  /* "Press D for boot details", near the bottom */
 } layout_t;
 
 /* ======================================================================== */
@@ -549,8 +577,117 @@ static struct {
     char title[64];
     int retry, echo, silent;
     char buf[512]; size_t len;
-    int raw; struct termios saved;
 } g_pr;
+
+/* tty1 in raw mode: one byte per key, no echo, no line editing, no signals
+   from Ctrl-C. The kernel keymap still applies, so a German or Italian layout
+   loaded by systemd-vconsole-setup types what its keys say. Both the
+   passphrase prompt and the D key read it. */
+static struct { int raw, hooked; struct termios saved; } g_kb;
+
+static void kb_restore(void) {
+    if (g_kb.raw) tcsetattr(STDIN_FILENO, TCSANOW, &g_kb.saved);
+    g_kb.raw = 0;
+}
+
+static int kb_raw(void) {
+    if (g_kb.raw) return 1;
+    if (!isatty(STDIN_FILENO) || tcgetattr(STDIN_FILENO, &g_kb.saved)) return 0;
+    struct termios t = g_kb.saved;
+    t.c_lflag &= ~(tcflag_t)(ICANON | ECHO | ECHONL | ISIG | IEXTEN);
+    t.c_iflag &= ~(tcflag_t)(IXON | ICRNL | INLCR | IGNCR | ISTRIP);
+    t.c_cc[VMIN] = 0; t.c_cc[VTIME] = 0;
+    if (tcsetattr(STDIN_FILENO, TCSANOW, &t)) return 0;
+    g_kb.raw = 1;
+    if (!g_kb.hooked) { g_kb.hooked = 1; atexit(kb_restore); }
+    return 1;
+}
+
+/* ------------------------------------------------------------------------ */
+/* bootvine (codeberg.org/wvhulle/bootvine): a live tree of the boot's systemd
+   jobs, the units that failed and why, and the slowest ones, on tty12. In the
+   initramfs D hands the screen to it; isotope.bootvine on the kernel command
+   line does so at once. bootvine.service is installed but not enabled (the
+   52isotope-bootvine dracut module, the Dockerfile `bootvine` stage), so it
+   runs only when the splash starts it. It survives switch-root by itself and
+   follows the rest of the boot; the marker keeps the booted-system splash
+   from drawing over it. It is also a password agent, and the console agent's
+   gate (51isotope-askpass) waits while it runs. */
+#define BOOTVINE_BIN  "/usr/bin/bootvine"
+#define BOOTVINE_UNIT "bootvine.service"
+#define BOOTVINE_MARK "/run/isotope-bootvine"
+
+/* g_hotkey: D is offered and the hint is shown. g_want_bootvine: D was
+   pressed. Both are declared above text_run. */
+
+static int bootvine_installed(void) {
+    return access(BOOTVINE_BIN, X_OK) == 0 && access("/run/systemd/system", F_OK) == 0;
+}
+
+/* systemctl start, waiting at most 5 s: bootvine.service has no ordering
+   that could hold its job, so the start takes a moment. The marker goes first,
+   so a booted-system splash starting meanwhile already stays out. 0 = it
+   runs. */
+static int bootvine_start(void) {
+    int fd = open(BOOTVINE_MARK, O_WRONLY | O_CREAT | O_CLOEXEC, 0644);
+    if (fd >= 0) close(fd);
+    pid_t pid = fork();
+    if (pid == 0) {
+        int nul = open("/dev/null", O_RDWR);
+        if (nul >= 0) { dup2(nul, STDIN_FILENO); dup2(nul, STDOUT_FILENO); }
+        execlp("systemctl", "systemctl", "start", BOOTVINE_UNIT, (char *)NULL);
+        _exit(127);
+    }
+    /* The console in front now, tty1. */
+    struct vt_stat vs; int fg = ioctl(STDIN_FILENO, VT_GETSTATE, &vs) == 0 ? vs.v_active : -1;
+    int st = -1;
+    if (pid > 0) {
+        double until = now_sec() + 5;
+        for (;;) {
+            pid_t r = waitpid(pid, &st, WNOHANG);
+            if (r == pid) break;
+            if (r < 0 && errno != EINTR) { st = -1; break; }
+            if (now_sec() > until) { st = -1; break; }   /* leave it running */
+            usleep(20000);
+        }
+    }
+    if (st == 0) {
+        /* The unit is active once its process runs, a moment before bootvine
+           has connected to systemd and switched to tty12. The kernel does not
+           complete that switch while tty1 is in graphics mode, so tty1 goes
+           back to text mode first, cleared and with no cursor: the moment in
+           between is an empty screen, not the kernel messages fbcon would
+           redraw. Then wait for the switch, 3 s at most. */
+        fputs("\033[?25l\033[H\033[2J\033[3J", stdout);
+        fflush(stdout);
+        tty_text();
+        double until = now_sec() + 3;
+        while (fg > 0 && now_sec() < until &&
+               ioctl(STDIN_FILENO, VT_GETSTATE, &vs) == 0 && vs.v_active == fg)
+            usleep(20000);
+        return 0;
+    }
+    fprintf(stderr, "kairos-splash: could not start %s\n", BOOTVINE_UNIT);
+    unlink(BOOTVINE_MARK);
+    return -1;
+}
+
+/* D only in the initramfs: the booted-system splash lasts three seconds and
+   the login screen takes tty1 back right after it. Puts tty1 in raw mode. */
+static int hotkey_offer(void) {
+    return !access("/etc/initrd-release", F_OK) && bootvine_installed() &&
+           access(BOOTVINE_MARK, F_OK) && kb_raw();
+}
+
+static void hotkey_keys(const unsigned char *b, size_t n);
+
+/* Without a passphrase question (the text renderer never answers one), read
+   whatever was typed and look for D. */
+static void hotkey_read(void) {
+    if (!g_hotkey || !g_kb.raw) return;
+    unsigned char b[64]; ssize_t n;
+    while ((n = read(STDIN_FILENO, b, sizeof b)) > 0) hotkey_keys(b, (size_t)n);
+}
 
 static int cmdline_has(const char *word);
 
@@ -563,8 +700,6 @@ static void prompt_wipe(void) {
 static void agent_unregister(void) {
     if (!g_pr.on) return;
     unlink(AGENT_PIDFILE);
-    if (g_pr.raw) tcsetattr(STDIN_FILENO, TCSANOW, &g_pr.saved);
-    g_pr.raw = 0;
     agent_close(&g_pr.ag);
     prompt_wipe();
     g_pr.on = 0;
@@ -584,7 +719,7 @@ static void agent_register(void) {
     if (g_agent_mode == 0 || cmdline_has("isotope.splash.agent=0") ||
         cmdline_has("hadron.splash.agent=0")) return;
     if (g_agent_mode < 0 && access("/etc/initrd-release", F_OK)) return;
-    if (!isatty(STDIN_FILENO) || tcgetattr(STDIN_FILENO, &g_pr.saved)) return;
+    if (!isatty(STDIN_FILENO)) return;
     if (!ask_can_reply()) return;
 
     mkdir(AGENT_PIDDIR, 0755);
@@ -595,15 +730,7 @@ static void agent_register(void) {
     fprintf(f, "%d\n", (int)getpid());
     if (fclose(f) || rename(tmp, AGENT_PIDFILE)) { unlink(tmp); return; }
 
-    /* Raw input from the VT: one byte per key, no echo, no line editing,
-       no signals from Ctrl-C. The kernel keymap still applies, so a German
-       or Italian layout loaded by systemd-vconsole-setup types what its
-       keys say. */
-    struct termios t = g_pr.saved;
-    t.c_lflag &= ~(tcflag_t)(ICANON | ECHO | ECHONL | ISIG | IEXTEN);
-    t.c_iflag &= ~(tcflag_t)(IXON | ICRNL | INLCR | IGNCR | ISTRIP);
-    t.c_cc[VMIN] = 0; t.c_cc[VTIME] = 0;
-    g_pr.raw = tcsetattr(STDIN_FILENO, TCSANOW, &t) == 0;
+    kb_raw();
     agent_init(&g_pr.ag, NULL);
     g_pr.on = 1;
     atexit(agent_unregister);
@@ -679,14 +806,32 @@ static void prompt_keys(const unsigned char *b, size_t n) {
     }
 }
 
+/* Keys while no question is open: D (either case) asks for bootvine.
+   Escape sequences are skipped whole, so the left arrow (ESC [ D) is not a
+   D. */
+static void hotkey_keys(const unsigned char *b, size_t n) {
+    for (size_t i = 0; i < n; i++) {
+        if (b[i] == 0x1b && i + 1 < n) {
+            i++;
+            if (b[i] == '[' || b[i] == 'O') {
+                while (i + 1 < n && !(b[i + 1] >= 0x40 && b[i + 1] <= 0x7e)) i++;
+                if (i + 1 < n) i++;
+            }
+        } else if (b[i] == 'd' || b[i] == 'D') {
+            g_want_bootvine = 1;
+        }
+    }
+}
+
 /* One step per frame: watch the directory, read the keyboard. */
 static void prompt_tick(void) {
-    if (!g_pr.on) return;
+    if (!g_pr.on) { hotkey_read(); return; }
     double now = now_sec();
     int r = agent_poll(&g_pr.ag, now);
     if (r == 1) prompt_show();
     else if (r == 2 && g_pr.st == P_ASK) g_pr.st = P_NONE;
     if (g_pr.st == P_CHECKING && now > g_pr.checking_until) g_pr.st = P_NONE;
+    if (g_pr.st != P_ASK) hotkey_read();
     if (g_pr.st == P_ASK) {
         unsigned char b[64];
         ssize_t n;
@@ -891,6 +1036,9 @@ static layout_t layout(const canvas_t *c) {
     l.note_y = l.field_y + l.field_h + 9 * ps;
     l.ph = l.note_y + FONT_H * hs + 12 * ps - l.py;
     if (l.py + l.ph + 2 * ps > l.bottom) l.bottom = l.py + l.ph + 2 * ps;
+    l.hint_h = FONT_H * hs;
+    l.hint_y = c->h - l.hint_h * 3;
+    if (l.hint_y < l.bottom) l.hint_y = l.bottom;
     return l;
 }
 
@@ -943,6 +1091,14 @@ static void gfx_frame(canvas_t *c, const layout_t *l, double t, double fade, int
 
     draw_mark(c, l, t, fade);
 
+    /* The hint, under everything else, while D does something. */
+    clear_rect(c, 0, l->hint_y, c->w, l->hint_h);
+    if (g_hotkey && g_pr.st == P_NONE) {
+        int hs = l->ps > 1 ? l->ps - 1 : 1;
+        draw_center(c, "Press D for boot details", l->hint_y, hs,
+                    mix(bgc, C_DIM, fade * (gl > 0 ? 1 - gl : 1)));
+    }
+
     if (g_pr.st != P_NONE) { draw_prompt(c, l, t); return; }
 
     int tw = text_width(TAG, l->ts);
@@ -986,7 +1142,9 @@ static int gfx_run(double duration) {
     layout_t l = layout(&c);
     blit(&c, 0, c.h);
     agent_register();
+    g_hotkey = hotkey_offer();
     notify_ready();
+    int handed = 0;
     const double fade_s = .35;
     double t0 = timeline_start(), started = now_sec();
     for (int frame = 0; !g_exit; frame++) {
@@ -1003,21 +1161,31 @@ static int gfx_run(double duration) {
         }
         if (!c.mem) { usleep(100000); if (fb_open(&c) == 0) { l = layout(&c); blit(&c, 0, c.h); } continue; }
         prompt_tick();
+        if (g_want_bootvine) {
+            /* bootvine switches to tty12 and draws there; nothing more is
+               drawn into the framebuffer after it starts. If it does not
+               start, the splash carries on without the hint. */
+            g_want_bootvine = 0;
+            if (bootvine_start() == 0) { handed = 1; break; }
+            g_hotkey = 0;
+        }
         gfx_frame(&c, &l, t, fade, frame);
         blit(&c, l.top, l.bottom);
+        blit(&c, l.hint_y, l.hint_y + l.hint_h);
         usleep(FRAME_USEC);
     }
     /* Leave the plain background, not a frozen logo, for whatever comes next. */
-    if (c.mem) { memcpy(c.back, c.bg, (size_t)c.w * c.h * 4); blit(&c, 0, c.h); }
+    if (c.mem && !handed) { memcpy(c.back, c.bg, (size_t)c.w * c.h * 4); blit(&c, 0, c.h); }
     canvas_free(&c);
     agent_unregister();
     tty_text();
+    kb_restore();
     return 0;
 }
 
 /* --render: draw one frame into a PPM, for the build-time check and for
    previewing the design without booting anything. */
-static int render_ppm(const char *path, int w, int h, double t, const char *prompt) {
+static int render_ppm(const char *path, int w, int h, double t, const char *prompt, int hint) {
     canvas_t c; memset(&c, 0, sizeof c);
     c.fd = -1; c.w = w; c.h = h; c.bpp = 32; c.stride = w * 4;
     c.r.offset = 16; c.g.offset = 8; c.b.offset = 0; c.r.length = c.g.length = c.b.length = 8;
@@ -1033,6 +1201,7 @@ static int render_ppm(const char *path, int w, int h, double t, const char *prom
         snprintf(g_pr.title, sizeof g_pr.title, "Enter the disk passphrase");
         g_pr.len = 8; memset(g_pr.buf, 'x', 8);
     }
+    if (hint) g_hotkey = 1;
     gfx_frame(&c, &l, t, 1, 1);
     FILE *f = fopen(path, "wb");
     if (!f) return 1;
@@ -1074,7 +1243,7 @@ static int splash_disabled(void) { return cmdline_has("kairos.splash=0"); }
 
 int main(int argc, char **argv) {
     double duration = 0, at = 1.5;
-    const char *render = NULL, *prompt = NULL; int rw = 1280, rh = 800;
+    const char *render = NULL, *prompt = NULL; int rw = 1280, rh = 800, hint = 0;
     for (int i = 1; i < argc; i++) {
         const char *a = argv[i];
         if (!strncmp(a, "--duration=", 11)) duration = parse_duration(a + 11);
@@ -1083,6 +1252,7 @@ int main(int argc, char **argv) {
         else if (!strncmp(a, "--size=", 7)) sscanf(a + 7, "%dx%d", &rw, &rh);
         else if (!strncmp(a, "--at=", 5)) at = parse_duration(a + 5);
         else if (!strncmp(a, "--prompt=", 9)) prompt = a + 9;
+        else if (!strcmp(a, "--hint")) hint = 1;
         else if (!strcmp(a, "--agent")) g_agent_mode = 1;
         else if (!strcmp(a, "--no-agent")) g_agent_mode = 0;
         /* Anything else is ignored on purpose: a newer kairos-init may pass a
@@ -1090,7 +1260,15 @@ int main(int argc, char **argv) {
            over that. */
     }
     load_version();
-    if (render) return render_ppm(render, rw, rh, at, prompt);
+    if (render) return render_ppm(render, rw, rh, at, prompt, hint);
+    /* bootvine has the screen (started in the initramfs, it is still
+       following the boot): draw nothing over it. */
+    if (!access(BOOTVINE_MARK, F_OK)) { notify_ready(); return 0; }
+    /* isotope.bootvine: bootvine from the start, no animation. */
+    if (cmdline_has("isotope.bootvine") && bootvine_installed() && bootvine_start() == 0) {
+        notify_ready();
+        return 0;
+    }
     if (splash_disabled()) { notify_ready(); return 0; }
 
     if (!isatty(STDOUT_FILENO)) {

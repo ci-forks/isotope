@@ -53,7 +53,7 @@ The baseline:
 
 | Feature | How the variants provide it today |
 |---|---|
-| Boot splash and branded login | `kairos-splash`; ly, or cosmic-greeter for COSMIC. `make check-boot-ux` asserts the subtitle per variant. In the initramfs the splash is also the password agent that asks for the disk passphrase (`rootfs/usr/lib/dracut/modules.d/51isotope-askpass/`, `splash/README.md`) |
+| Boot splash and branded login | `kairos-splash`; ly, or cosmic-greeter for COSMIC. `make check-boot-ux` asserts the subtitle per variant. In the initramfs the splash is also the password agent that asks for the disk passphrase (`rootfs/usr/lib/dracut/modules.d/51isotope-askpass/`, `splash/README.md`), and D (or `isotope.bootvine`, the GRUB "boot details" entry) hands the screen to bootvine (`52isotope-bootvine`), on every variant and the server |
 | Session identity | `/etc/isotope/session`, `/etc/issue`, `/etc/motd` in `rootfs-<variant>/`; `/etc/isotope/release` written in the Dockerfile `kairos` stage |
 | Notifications server | mako (sway), dunst (i3), cosmic-notifications, Noctalia |
 | Update tray icon (isotope-update) | `isotope-update tray` at session start, talking to the root `isotope-updated` daemon over D-Bus; see `docs/superpowers/specs/2026-11-05-tray-updater-design.md`. Not on agent, which keeps `isotope-update upgrade` through sudo |

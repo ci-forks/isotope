@@ -45,8 +45,9 @@ FROM ghcr.io/kairos-io/hadron-toolchain:${HADRON_VERSION} AS toolchain
 # into the framebuffer, falling back to a text animation without one.
 #
 # `make test` checks the password agent protocol (agent.c). The smoke tests
-# run the whole program three times: the non-tty fallback, one rendered
-# frame and one with the passphrase panel, each a PPM of exactly the
+# run the whole program four times: the non-tty fallback, one rendered
+# frame, one with the passphrase panel and one with the "Press D" hint
+# (which must differ from the plain frame), each a PPM of exactly the
 # requested size.
 # ---------------------------------------------------------------------------
 FROM toolchain AS isotope-splash
@@ -56,7 +57,9 @@ RUN cd /build/splash && make clean && make && make test && \
     ./isotope-splash --render=/tmp/frame.ppm --size=640x400 --at=2 && \
     [ "$(stat -c %s /tmp/frame.ppm)" -eq $((15 + 640 * 400 * 3)) ] && \
     ./isotope-splash --render=/tmp/prompt.ppm --size=640x400 --at=2 --prompt=retry && \
-    [ "$(stat -c %s /tmp/prompt.ppm)" -eq $((15 + 640 * 400 * 3)) ]
+    [ "$(stat -c %s /tmp/prompt.ppm)" -eq $((15 + 640 * 400 * 3)) ] && \
+    ./isotope-splash --render=/tmp/hint.ppm --size=640x400 --at=2 --hint && \
+    [ "$(stat -c %s /tmp/hint.ppm)" -eq $((15 + 640 * 400 * 3)) ] && ! cmp -s /tmp/frame.ppm /tmp/hint.ppm
 
 
 FROM toolchain AS wayland
@@ -2074,6 +2077,29 @@ WORKDIR /src
 RUN wget -qO- https://github.com/restic/restic/archive/refs/tags/v${RESTIC_VERSION}.tar.gz | tar -xz --strip-components=1 && \
     CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /restic/usr/bin/restic ./cmd/restic && \
     [ "$(/restic/usr/bin/restic version | awk '{ print $2 }')" = "${RESTIC_VERSION}" ]
+
+
+# bootvine (codeberg.org/wvhulle/bootvine, GPL-3.0-or-later): a live tree of
+# the boot's systemd jobs, the units that failed and why, and the slowest
+# ones, on tty12. The splash starts it in the initramfs when D is pressed or
+# isotope.bootvine is on the kernel command line (splash/README.md); the
+# 52isotope-bootvine dracut module puts it in the initramfs, not enabled.
+# Pinned to a commit, not a release: v0.1.4 talks to systemd through libdbus
+# and libsystemd, and only later commits replaced both with pure Rust (zbus,
+# sdjournal), which is what lets it build as one static musl binary here.
+# Its rust-toolchain.toml asks for a nightly it does not need; stable builds it.
+FROM rust:1.96-alpine AS bootvine
+ARG BOOTVINE_COMMIT=c1e99c33bf1654849b1c42926c5e93e9ce61afa0
+RUN apk add --no-cache musl-dev git
+WORKDIR /src
+RUN git init -q . && git remote add origin https://codeberg.org/wvhulle/bootvine.git && \
+    git fetch -q --depth 1 origin "${BOOTVINE_COMMIT}" && git checkout -q FETCH_HEAD && \
+    [ "$(git rev-parse HEAD)" = "${BOOTVINE_COMMIT}" ] && rm rust-toolchain.toml && \
+    cargo build --release --locked -p bootvine && \
+    install -Dm755 target/release/bootvine /bootvine/usr/bin/bootvine && \
+    install -Dm644 bootvine/system-files/systemd/bootvine.service /bootvine/usr/lib/systemd/system/bootvine.service && \
+    install -Dm644 LICENSE /bootvine/usr/share/licenses/bootvine/LICENSE && \
+    /bootvine/usr/bin/bootvine --version
 
 
 # slurp — region selection (pairs with grim)
@@ -4819,6 +4845,8 @@ COPY --from=desktop-config / /
 # must be in place before the kairos stage runs kairos-init, which then keeps it
 # instead of linking the stock `kairos splash` there.
 COPY --from=isotope-splash /build/splash/isotope-splash /usr/bin/kairos-splash
+# bootvine, which the splash hands the screen to on D (52isotope-bootvine).
+COPY --from=bootvine /bootvine/ /
 
 # System setup. NOTE: no user is created here — the desktop user is defined at
 # install time via a Kairos cloud-config (see cloud-config.yaml) and lives on
@@ -5024,6 +5052,7 @@ COPY --from=server-config / /
 # The splash is kept for one job: in the initramfs it asks for the disk
 # passphrase (51isotope-askpass), and falls back to text without a framebuffer.
 COPY --from=isotope-splash /build/splash/isotope-splash /usr/bin/kairos-splash
+COPY --from=bootvine /bootvine/ /
 # The installer puts its user in the desktop groups (install-ui/core/config.go);
 # a group that does not exist would stop the user from being created.
 # NetworkManager starts at boot; nmcli changes need root (sudo), see

@@ -67,4 +67,12 @@ check "initramfs splash is the image's build (not a stale cached one)" \
 check "splash execs inside the unpacked initramfs" \
     "mkdir -p /tmp/ird && cd /tmp/ird && lsinitrd --unpack /boot/initrd && chroot . /usr/bin/kairos-splash 2>/dev/null | grep -q 'ISOTOPE v'"
 
+# bootvine (52isotope-bootvine): in the initramfs for the splash to start on D,
+# but not enabled, or it would draw on every boot.
+check "bootvine and its unit in the initramfs" \
+    "lsinitrd /boot/initrd 2>/dev/null | grep -q 'usr/bin/bootvine' && \
+     lsinitrd /boot/initrd 2>/dev/null | grep -q 'system/bootvine.service'"
+check "bootvine not enabled in the initramfs" \
+    "! lsinitrd /boot/initrd 2>/dev/null | grep -q 'wants/bootvine.service'"
+
 exit "$fail"

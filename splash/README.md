@@ -87,3 +87,42 @@ an agent too. `make test` runs the protocol tests.
 `--at` is the animation time in seconds: under 1.1 s the logo is still
 glitching in. `--prompt=ask`, `--prompt=retry` or `--prompt=checking` draws
 the passphrase panel.
+
+## Boot details (bootvine)
+
+In the initramfs the splash shows "Press D for boot details" at the bottom of
+the screen. D hands the screen to
+[bootvine](https://codeberg.org/wvhulle/bootvine): a live tree of the boot's
+systemd jobs, the units that failed with their reason and last log lines, and
+a timeline of the slowest ones, on tty12. `isotope.bootvine` on the kernel
+command line does the same from the start, with no animation; the GRUB menus
+have an entry for it ("boot details" in the installed menu and on the live
+ISO).
+
+- **Started by the splash only.** The Dockerfile `bootvine` stage installs
+  `/usr/bin/bootvine` and `bootvine.service`, not enabled. The
+  `52isotope-bootvine` dracut module copies both into the initramfs (bootvine's
+  own module would enable it on every boot). The splash runs
+  `systemctl start bootvine.service`, waits for it, and only then stops
+  drawing, returns tty1 to text mode and exits. If the start fails, the
+  splash carries on without the hint.
+- **Only in the initramfs.** The booted-system splash lasts three seconds and
+  the login screen takes tty1 right after it, so it does not offer D.
+- **The rest of the boot.** bootvine survives switch-root by itself (`@` in
+  its argv[0]) and follows the boot to the end. `/run/isotope-bootvine`, which
+  the splash writes before the start, keeps the booted-system splash from
+  drawing over it.
+- **Passphrase.** bootvine is a password agent too and asks on its own
+  console. The console agent's gate (`isotope-ask-gate.sh`) waits while
+  `bootvine.service` is active, as it does for the splash, so only one of them
+  asks.
+- **Both renderers.** The framebuffer splash draws the hint under the
+  boot lines; the text animation (no framebuffer in the initramfs, as on a
+  BIOS VGA console) prints it on the second to last row. The text animation
+  is never a password agent: the gate stops it before the console asks, so
+  reading tty1 there takes no passphrase keys.
+- **Keys.** D or d while no question is open. A question's panel takes every
+  key, so D typed into a passphrase is a D. Escape sequences are skipped
+  whole: the left arrow (`ESC [ D`) is not a D.
+
+`--hint` with `--render` draws a frame with the hint, for previewing it.

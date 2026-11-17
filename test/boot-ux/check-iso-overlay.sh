@@ -71,6 +71,12 @@ check "safe graphics entry installs with nomodeset" \
     "entry 'isotope (safe graphics)' | grep -q 'vga=795 nomodeset install-mode-interactive '"
 check "debug entry left verbose" \
     "entry 'isotope (debug)' | grep -q 'rd.debug' && ! entry 'isotope (debug)' | grep -q 'quiet'"
+# Boot details: the install entry plus isotope.bootvine, which the splash
+# must see (so `splash` too). bootvine quiets the console, so not on debug.
+check "boot details entry starts bootvine from the splash" \
+    "entry 'isotope (boot details)' | grep -q ' quiet splash ' && entry 'isotope (boot details)' | grep -q ' isotope.bootvine '"
+check "debug entry has no bootvine" \
+    "test -f '$CFG' && ! entry 'isotope (debug)' | grep -q bootvine"
 # GRUB has no hiddenentry command: on EFI it printed "can't find command".
 check "no hiddenentry"                  "test -f '$CFG' && ! grep -q hiddenentry '$CFG'"
 # Each echo opens a text box over the theme.
