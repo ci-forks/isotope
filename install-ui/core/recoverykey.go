@@ -1,4 +1,4 @@
-package main
+package core
 
 import (
 	"crypto/rand"
@@ -25,8 +25,8 @@ import (
 // characters, and the keyslot holds the key with its dashes, as systemd's
 // does, so the boot prompt can take it with or without them.
 
-// modhex maps a nibble to a letter, as systemd and YubiKey do.
-const modhex = "cbdefghijklnrtuv"
+// Modhex maps a nibble to a letter, as systemd and YubiKey do.
+const Modhex = "cbdefghijklnrtuv"
 
 const (
 	recoveryKeyBytes  = 32 // 256 bits
@@ -45,9 +45,9 @@ var recoveryKeyFile = "/run/isotope-install/recovery-key"
 // to word its boot prompt "recovery key" and to offer the prompt at all.
 const recoveryTokenType = "systemd-recovery"
 
-// generateRecoveryKey reads 32 bytes from r (crypto/rand.Reader in the
+// GenerateRecoveryKey reads 32 bytes from r (crypto/rand.Reader in the
 // installer) and formats them as a recovery key.
-func generateRecoveryKey(r io.Reader) (string, error) {
+func GenerateRecoveryKey(r io.Reader) (string, error) {
 	buf := make([]byte, recoveryKeyBytes)
 	if _, err := io.ReadFull(r, buf); err != nil {
 		return "", fmt.Errorf("reading random bytes for the recovery key: %w", err)
@@ -57,16 +57,16 @@ func generateRecoveryKey(r io.Reader) (string, error) {
 		if i > 0 && i%(recoveryGroupLen/2) == 0 {
 			b.WriteByte('-')
 		}
-		b.WriteByte(modhex[c>>4])
-		b.WriteByte(modhex[c&0x0f])
+		b.WriteByte(Modhex[c>>4])
+		b.WriteByte(Modhex[c&0x0f])
 	}
 	return b.String(), nil
 }
 
-func newRecoveryKey() (string, error) { return generateRecoveryKey(rand.Reader) }
+func newRecoveryKey() (string, error) { return GenerateRecoveryKey(rand.Reader) }
 
-// recoveryKeyGroupsOf splits a key into its eight groups.
-func recoveryKeyGroupsOf(key string) []string { return strings.Split(key, "-") }
+// RecoveryKeyGroups splits a key into its eight groups.
+func RecoveryKeyGroups(key string) []string { return strings.Split(key, "-") }
 
 // normalizeKeyInput forgives how a group or a key is typed back: case,
 // spaces and dashes do not count.
@@ -84,15 +84,15 @@ func confirmsRecoveryKey(key string, group int, typed string) bool {
 	if t == normalizeKeyInput(key) {
 		return true
 	}
-	groups := recoveryKeyGroupsOf(key)
+	groups := RecoveryKeyGroups(key)
 	return group >= 0 && group < len(groups) && t == groups[group]
 }
 
-// recoveryKeyLines is the key screen: the key in the console's own font,
+// RecoveryKeyLines is the key screen: the key in the console's own font,
 // which keeps every letter distinct, two groups per line with their numbers
 // and a space between letters, then the whole key on one line.
-func recoveryKeyLines(key string) []string {
-	g := recoveryKeyGroupsOf(key)
+func RecoveryKeyLines(key string) []string {
+	g := RecoveryKeyGroups(key)
 	var out []string
 	for i := 0; i+1 < len(g); i += 2 {
 		out = append(out, fmt.Sprintf("%d  %s    %s  %d", i+1, spaced(g[i]), spaced(g[i+1]), i+2))
@@ -253,8 +253,8 @@ func recoveryGroupToConfirm(r io.Reader) int {
 // unattended installer: the key must be shown to a person, once.
 var errRecoveryKeyNonInteractive = errors.New("ISOTOPE_RECOVERY_KEY: the recovery key is shown once on screen, so it needs the interactive installer")
 
-// ordinal is "1st", "2nd" ... for the confirmation prompt.
-func ordinal(n int) string {
+// Ordinal is "1st", "2nd" ... for the confirmation prompt.
+func Ordinal(n int) string {
 	suffix := "th"
 	switch n % 10 {
 	case 1:

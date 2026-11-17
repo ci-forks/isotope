@@ -8,10 +8,27 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/kairos-community/isotope/install-ui/core"
 )
 
 type lineMsg string
+type stepMsg int
 type doneMsg struct{ err error }
+
+// eventMsg turns an event of the install run into the message the model
+// handles.
+func eventMsg(e core.Event) tea.Msg {
+	switch e.Kind {
+	case core.EventLine:
+		return lineMsg(e.Line)
+	case core.EventStep:
+		return stepMsg(e.Step)
+	case core.EventFailed:
+		return doneMsg{err: e.Err}
+	}
+	return doneMsg{}
+}
 
 type action int
 
@@ -61,13 +78,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case lineMsg:
 		atBottom := m.ready && m.vp.AtBottom()
 		m.logs.add(string(msg))
-		m.step = AdvanceStep(string(msg), m.step)
 		if m.ready {
 			m.vp.SetContent(m.logs.text())
 			if atBottom {
 				m.vp.GotoBottom() // follow the tail unless the user scrolled up
 			}
 		}
+		return m, nil
+
+	case stepMsg:
+		m.step = int(msg)
 		return m, nil
 
 	case doneMsg:
@@ -84,7 +104,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.done = true
-		m.step = len(Steps) - 1
+		m.step = len(core.Steps) - 1
 		return m, tea.Quit
 
 	case tea.KeyMsg:
@@ -202,9 +222,9 @@ func (m model) view() string {
 		b.WriteString("        " + tnHot.Render("system installed - rebooting...") + "\n")
 	} else {
 		b.WriteString("        " + tnHot.Render(m.spin.View()) + "  " +
-			tnHot.Render(Steps[m.step].Name) + "...\n")
+			tnHot.Render(core.Steps[m.step].Name) + "...\n")
 	}
-	pct := Percent(m.step)
+	pct := core.Percent(m.step)
 	b.WriteString("\n        " + progressBar(pct, 20) +
 		tnDim.Render(fmt.Sprintf("  %3d%%", pct)) + "\n")
 	b.WriteString("\n        " + tnDim.Render("press 'l' to show logs · do not power off") + "\n")

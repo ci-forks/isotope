@@ -1,4 +1,4 @@
-package main
+package core
 
 import (
 	"fmt"
@@ -158,12 +158,12 @@ const keyboardFile = "/etc/isotope/keyboard"
 // written: nothing here may break out of the YAML or the shell commands.
 func writeLocaleStage(b *strings.Builder, c Choice) {
 	layout, variant := c.KeyboardLayout, c.KeyboardVariant
-	if validateKeyboard(layout, variant) != nil {
-		layout, variant = defaultLayout, ""
+	if ValidateKeyboard(layout, variant) != nil {
+		layout, variant = DefaultLayout, ""
 	}
 	tz := c.Timezone
-	if validateTimezone(tz) != nil {
-		tz = defaultTimezone
+	if ValidateTimezone(tz) != nil {
+		tz = DefaultTimezone
 	}
 	b.WriteString("    - name: \"Isotope keyboard layout and timezone\"\n")
 	b.WriteString("      files:\n")
@@ -227,10 +227,10 @@ var topLevelKey = regexp.MustCompile(`(?m)^[[:space:]]*(users|install):`)
 // ConfigPresent reports whether oemDir already holds an install config other than
 // our own output file. If so the caller skips the wizard and installs unattended,
 // preserving the shell installer's behaviour for seeded/automated installs.
-func ConfigPresent(oemDir, outPath string) (bool, error) {
+func ConfigPresent(OEMDir, outPath string) (bool, error) {
 	var found bool
 	for _, pat := range []string{"*.yaml", "*.yml"} {
-		matches, err := filepath.Glob(filepath.Join(oemDir, pat))
+		matches, err := filepath.Glob(filepath.Join(OEMDir, pat))
 		if err != nil {
 			return false, err
 		}

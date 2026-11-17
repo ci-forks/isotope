@@ -1,4 +1,4 @@
-package main
+package core
 
 import (
 	"bufio"
@@ -18,8 +18,8 @@ import (
 // layout.
 
 const (
-	defaultLayout   = "us"
-	defaultTimezone = "UTC"
+	DefaultLayout   = "us"
+	DefaultTimezone = "UTC"
 
 	// xkbRulesList is xkeyboard-config's human-readable rules list. Every
 	// desktop variant ships xkeyboard-config, so the live installer has it.
@@ -44,9 +44,9 @@ func (k Keyboard) Code() string {
 	return k.Layout + "(" + k.Variant + ")"
 }
 
-// curatedKeyboards is the list offered when the image has no xkeyboard-config
+// CuratedKeyboards is the list offered when the image has no xkeyboard-config
 // rules list to read: the most common layouts, a few variants people look for.
-var curatedKeyboards = []Keyboard{
+var CuratedKeyboards = []Keyboard{
 	{"us", "", "English (US)"},
 	{"us", "intl", "English (US, intl., with dead keys)"},
 	{"us", "dvorak", "English (Dvorak)"},
@@ -93,20 +93,20 @@ var curatedKeyboards = []Keyboard{
 func loadKeyboards(path string) []Keyboard {
 	f, err := os.Open(path)
 	if err != nil {
-		return curatedKeyboards
+		return CuratedKeyboards
 	}
 	defer f.Close()
 	if ks := parseRulesList(f); len(ks) > 0 {
 		return ks
 	}
-	return curatedKeyboards
+	return CuratedKeyboards
 }
 
 // parseRulesList reads the "! layout" and "! variant" sections of a
 // xkeyboard-config .lst file. A layout line is "  de   German"; a variant
 // line is "  nodeadkeys   de: German (no dead keys)". Each variant is placed
 // right after its layout, and US English goes first because it is the
-// default. Entries whose names would not pass validateKeyboard are dropped.
+// default. Entries whose names would not pass ValidateKeyboard are dropped.
 func parseRulesList(r io.Reader) []Keyboard {
 	var layouts []Keyboard
 	variants := map[string][]Keyboard{}
@@ -126,19 +126,19 @@ func parseRulesList(r io.Reader) []Keyboard {
 		desc := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), name))
 		switch section {
 		case "layout":
-			if validateKeyboard(name, "") == nil {
+			if ValidateKeyboard(name, "") == nil {
 				layouts = append(layouts, Keyboard{Layout: name, Description: desc})
 			}
 		case "variant":
 			layout, d, ok := strings.Cut(desc, ":")
-			if !ok || validateKeyboard(layout, name) != nil {
+			if !ok || ValidateKeyboard(layout, name) != nil {
 				continue
 			}
 			variants[layout] = append(variants[layout], Keyboard{Layout: layout, Variant: name, Description: strings.TrimSpace(d)})
 		}
 	}
 	sort.SliceStable(layouts, func(i, j int) bool {
-		return layouts[i].Layout == defaultLayout && layouts[j].Layout != defaultLayout
+		return layouts[i].Layout == DefaultLayout && layouts[j].Layout != DefaultLayout
 	})
 	out := make([]Keyboard, 0, len(layouts))
 	for _, l := range layouts {
@@ -158,7 +158,7 @@ var (
 	xkbVariant = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`)
 )
 
-func validateKeyboard(layout, variant string) error {
+func ValidateKeyboard(layout, variant string) error {
 	if !xkbLayout.MatchString(layout) {
 		return errors.New("keyboard layout must be an XKB layout name such as us or de")
 	}
@@ -173,16 +173,16 @@ func validateKeyboard(layout, variant string) error {
 // part of a path under /usr/share/zoneinfo.
 var tzName = regexp.MustCompile(`^[A-Za-z0-9_+-]+(/[A-Za-z0-9_+-]+){0,2}$`)
 
-func validateTimezone(tz string) error {
+func ValidateTimezone(tz string) error {
 	if !tzName.MatchString(tz) {
 		return errors.New("timezone must be an IANA name such as UTC or Europe/Rome")
 	}
 	return nil
 }
 
-// curatedTimezones is the fallback list when the image has no tzdata. The
+// CuratedTimezones is the fallback list when the image has no tzdata. The
 // installed system could not use any other zone then anyway.
-var curatedTimezones = []string{
+var CuratedTimezones = []string{
 	"UTC",
 	"America/New_York", "America/Chicago", "America/Denver", "America/Los_Angeles",
 	"America/Sao_Paulo", "America/Mexico_City", "America/Toronto",
@@ -201,7 +201,7 @@ func loadTimezones(dir string) []string {
 	seen := map[string]bool{}
 	var zones []string
 	add := func(z string) {
-		if !seen[z] && validateTimezone(z) == nil {
+		if !seen[z] && ValidateTimezone(z) == nil {
 			seen[z] = true
 			zones = append(zones, z)
 		}
@@ -245,12 +245,12 @@ func loadTimezones(dir string) []string {
 		})
 	}
 	if len(zones) == 0 {
-		return curatedTimezones
+		return CuratedTimezones
 	}
 	sort.Strings(zones)
-	out := []string{defaultTimezone}
+	out := []string{DefaultTimezone}
 	for _, z := range zones {
-		if z != defaultTimezone {
+		if z != DefaultTimezone {
 			out = append(out, z)
 		}
 	}
@@ -285,14 +285,14 @@ func isTZif(path string) bool {
 // /etc/localtime, so UTC is the common answer.
 func detectTimezone(localtime string) string {
 	if target, err := os.Readlink(localtime); err == nil {
-		if _, zone, ok := strings.Cut(target, "zoneinfo/"); ok && validateTimezone(zone) == nil {
+		if _, zone, ok := strings.Cut(target, "zoneinfo/"); ok && ValidateTimezone(zone) == nil {
 			return zone
 		}
 	}
-	if tz := strings.TrimPrefix(os.Getenv("TZ"), ":"); validateTimezone(tz) == nil {
+	if tz := strings.TrimPrefix(os.Getenv("TZ"), ":"); ValidateTimezone(tz) == nil {
 		return tz
 	}
-	return defaultTimezone
+	return DefaultTimezone
 }
 
 // consoleKeymapAlias maps XKB layouts whose kbd keymap has another name.
@@ -364,7 +364,7 @@ var consoleKeymapName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`)
 // the kernel's own map, so going back from "de" to a layout with no console
 // keymap does not leave the console in German.
 //
-// The wizard calls it through its applyKeymap field, which newWizard leaves
+// The wizard calls it through its ApplyKeymap field, which NewWizard leaves
 // a no-op, so tests do not change the keymap of the machine they run on.
 func loadConsoleKeymap(name string) {
 	_ = exec.Command("loadkeys", orDefault(name, "us")).Run()

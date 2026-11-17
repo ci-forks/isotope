@@ -1,377 +1,136 @@
 package main
 
 import (
-	"crypto/rand"
 	"errors"
 	"fmt"
-	"os"
-	"regexp"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/kairos-community/isotope/install-ui/core"
 )
 
-const defaultHostname = "isotope"
+// The text front end of the wizard. The pages, their order and every check
+// on what is typed are in core.Wizard; this draws a page and turns keys into
+// calls on it.
 
-func oemDir() string {
-	if d := os.Getenv("ISOTOPE_OEM_DIR"); d != "" {
-		return d
-	}
-	return "/oem"
+var stepName = map[core.Page]string{
+	core.PageKeyboard:          "keyboard",
+	core.PageTimezone:          "timezone",
+	core.PageHostname:          "hostname",
+	core.PageUser:              "username",
+	core.PagePass:              "password",
+	core.PageGithub:            "ssh keys",
+	core.PageDisk:              "target disk",
+	core.PageEncrypt:           "encryption",
+	core.PagePassphrase:        "disk passphrase",
+	core.PagePassphraseConfirm: "disk passphrase",
+	core.PageRecovery:          "recovery key",
+	core.PageRecoveryShow:      "recovery key",
+	core.PageRecoveryConfirm:   "recovery key",
+	core.PageReview:            "review",
 }
 
-// configOut is the file the wizard writes. It is normally in oemDir, but a
-// Trusted Boot (UKI) install medium boots with a read-only root: there /oem is
-// a read-only directory and only /etc, /var, /srv and /home are writable.
-// 90_desktop_installer.yaml sets ISOTOPE_CONFIG_OUT to a file in /etc/kairos,
-// which kairos-agent also reads its config from (agent GetUserConfigDirs).
-// oemDir is still the directory scanned for a seeded config.
-func configOut() string {
-	if p := os.Getenv("ISOTOPE_CONFIG_OUT"); p != "" {
-		return p
-	}
-	return oemDir() + "/99_isotope-user.yaml"
-}
-
-// posixUsername is the conservative intersection of what useradd accepts and
-// what is safe to interpolate: lowercase start (letter or underscore), then
-// letters, digits, dash or underscore, 32 characters at most.
-//
-// This is not cosmetic. RenderCloudConfig writes Username raw into the
-// /etc/ly/save.ini block scalar and returns no error, so it cannot defend
-// itself: a newline there closes the YAML block early and produces a
-// cloud-config that fails to parse on a machine whose disk has already been
-// wiped. The check has to live here, before the value can reach the renderer.
-var posixUsername = regexp.MustCompile(`^[a-z_][a-z0-9_-]{0,31}$`)
-
-const usernameRule = "username must be 1-32 chars: lowercase letters, digits, - or _, starting with a letter or _"
-
-func validateUsername(v string) error {
-	if v == "" {
-		return errors.New("username is required")
-	}
-	if !posixUsername.MatchString(v) {
-		return errors.New(usernameRule)
-	}
-	return nil
-}
-
-// githubHandle is GitHub's own account-name shape: ASCII alphanumerics and
-// hyphens, never leading or trailing, 39 characters at most.
-//
-// This matters more than the username check, not less. Github is the one field
-// RenderCloudConfig writes into a *plain* YAML scalar with no quoting:
-//
-//   - github:<value>
-//
-// A newline there does not break the document, it extends it. The value
-// "ada\nstages:\n  network:\n    - name: pwn" renders a cloud-config with two
-// top-level `stages:` keys — still valid YAML, in which the injected block
-// displaces the /etc/ly/save.ini stage and the machine boots to a login screen
-// that was never configured. An invalid username fails loudly; this fails
-// silently, and both happen after the disk has been wiped. RenderCloudConfig
-// returns no error and so cannot refuse, so the check lives here at the input.
-var githubHandle = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$`)
-
-const githubRule = "github username must be 1-39 chars: letters, digits or hyphens, not starting or ending with a hyphen"
-
-// validateGithub accepts the empty string: importing SSH keys is optional and
-// skipping the step is the documented way to decline.
-func validateGithub(v string) error {
-	if v == "" {
-		return nil
-	}
-	if !githubHandle.MatchString(v) {
-		return errors.New(githubRule)
-	}
-	return nil
-}
-
-// choiceFromEnv reads the non-interactive configuration. The second return value
-// reports whether non-interactive mode is active at all. These variable names are
-// a stable contract with existing tests and automation.
-func choiceFromEnv() (Choice, bool, error) {
-	if os.Getenv("ISOTOPE_INSTALL_NONINTERACTIVE") != "1" {
-		return Choice{}, false, nil
-	}
-	c := Choice{
-		Hostname: os.Getenv("ISOTOPE_HOSTNAME"),
-		Username: os.Getenv("ISOTOPE_USER"),
-		Password: os.Getenv("ISOTOPE_PASS"),
-		Github:   os.Getenv("ISOTOPE_GITHUB"),
-		Disk:     os.Getenv("ISOTOPE_DISK"),
-
-		KeyboardLayout:  orDefault(os.Getenv("ISOTOPE_KEYBOARD_LAYOUT"), defaultLayout),
-		KeyboardVariant: os.Getenv("ISOTOPE_KEYBOARD_VARIANT"),
-		Timezone:        orDefault(os.Getenv("ISOTOPE_TIMEZONE"), defaultTimezone),
-
-		Encrypt:    os.Getenv("ISOTOPE_ENCRYPT") == "1",
-		Passphrase: os.Getenv("ISOTOPE_DISK_PASSPHRASE"),
-	}
-	if c.Hostname == "" {
-		c.Hostname = defaultHostname
-	}
-	var missing []string
-	if c.Username == "" {
-		missing = append(missing, "ISOTOPE_USER")
-	}
-	if c.Password == "" {
-		missing = append(missing, "ISOTOPE_PASS")
-	}
-	if c.Disk == "" {
-		missing = append(missing, "ISOTOPE_DISK")
-	}
-	if len(missing) > 0 {
-		return c, true, fmt.Errorf("non-interactive mode requires %s", strings.Join(missing, ", "))
-	}
-	// The interactive path validates at the input step; the env is the other way
-	// a username can reach RenderCloudConfig, so it is checked here too.
-	if err := validateUsername(c.Username); err != nil {
-		return c, true, fmt.Errorf("ISOTOPE_USER: %w", err)
-	}
-	// Same reasoning for the GitHub handle, which reaches an unquoted scalar.
-	// Empty stays valid here: ISOTOPE_GITHUB is genuinely optional.
-	if err := validateGithub(c.Github); err != nil {
-		return c, true, fmt.Errorf("ISOTOPE_GITHUB: %w", err)
-	}
-	// Optional, defaulting to US English and UTC. The renderer would replace
-	// a bad value with the default, but a typo here should fail the install,
-	// not install a machine with a keyboard the operator did not ask for.
-	if err := validateKeyboard(c.KeyboardLayout, c.KeyboardVariant); err != nil {
-		return c, true, fmt.Errorf("ISOTOPE_KEYBOARD_LAYOUT/ISOTOPE_KEYBOARD_VARIANT: %w", err)
-	}
-	if err := validateTimezone(c.Timezone); err != nil {
-		return c, true, fmt.Errorf("ISOTOPE_TIMEZONE: %w", err)
-	}
-	// Encryption has no default passphrase.
-	if c.Encrypt {
-		if err := validatePassphrase(c.Passphrase); err != nil {
-			return c, true, fmt.Errorf("ISOTOPE_DISK_PASSPHRASE: %w", err)
-		}
-	} else {
-		c.Passphrase = ""
-	}
-	return c, true, nil
-}
-
-// writeChoice hashes the password and writes the cloud-config with owner-only
-// permissions — the file carries a password hash.
-func writeChoice(path string, c Choice, hash string) error {
-	if err := os.MkdirAll(dirOf(path), 0o755); err != nil {
-		return err
-	}
-	return os.WriteFile(path, []byte(RenderCloudConfig(c, hash)), 0o600)
-}
-
-func dirOf(path string) string {
-	if i := strings.LastIndex(path, "/"); i > 0 {
-		return path[:i]
-	}
-	return "."
-}
-
-// --- wizard steps ----------------------------------------------------------
-
-type wizardStep int
-
-// The keyboard comes first: the console switches to the chosen keymap, so the
-// password is typed with the layout the installed system will use for it.
-const (
-	stepKeyboard wizardStep = iota
-	stepTimezone
-	stepHostname
-	stepUser
-	stepPass
-	stepGithub
-	stepDisk
-	stepEncrypt
-	stepPassphrase
-	stepPassphraseConfirm
-	stepRecovery
-	stepRecoveryShow
-	stepRecoveryConfirm
-	stepReview
-)
-
-var stepName = map[wizardStep]string{
-	stepKeyboard:          "keyboard",
-	stepTimezone:          "timezone",
-	stepHostname:          "hostname",
-	stepUser:              "username",
-	stepPass:              "password",
-	stepGithub:            "ssh keys",
-	stepDisk:              "target disk",
-	stepEncrypt:           "encryption",
-	stepPassphrase:        "disk passphrase",
-	stepPassphraseConfirm: "disk passphrase",
-	stepRecovery:          "recovery key",
-	stepRecoveryShow:      "recovery key",
-	stepRecoveryConfirm:   "recovery key",
-	stepReview:            "review",
-}
-
+// wizardModel is the Bubble Tea model of the wizard: core.Wizard plus what
+// the text screens need to draw it.
 type wizardModel struct {
-	step    wizardStep
+	core.Wizard
+
 	in      textinput.Model
-	choice  Choice
-	disks   []Disk
 	diskIdx int
 	err     string
 	done    bool
 	aborted bool
 
-	keyboards []Keyboard
-	kbPick    picker
-	zones     []string
-	tzPick    picker
-	// keymapsDir is where the console keymaps are looked up, and
-	// applyKeymap loads one on the live console. newWizard makes it a no-op.
-	keymapsDir  string
-	applyKeymap func(string)
+	kbPick picker
+	tzPick picker
 
 	// encIdx is the cursor on the encryption step, 0 for "no" (the
 	// default) and 1 for "yes".
 	encIdx int
-	// trustedBoot hides the encryption step: a Trusted Boot install
-	// encrypts with its TPM-sealed key instead.
-	trustedBoot bool
-	// passphraseFirst is the disk passphrase as first typed, until the
-	// second entry matches it.
-	passphraseFirst string
-
-	// recIdx is the cursor on the recovery key step (Trusted Boot only),
-	// 0 for "no" (the default) and 1 for "yes". confirmGroup is the
-	// 0-based group of the key the person types back. newKey and
-	// pickGroup are crypto/rand backed; the tests replace them.
-	recIdx       int
-	confirmGroup int
-	newKey       func() (string, error)
-	pickGroup    func() int
+	// recIdx is the cursor on the recovery key step, 0 for "no" (the
+	// default) and 1 for "yes".
+	recIdx int
 }
 
 // newWizard is the wizard with the built-in keyboard and timezone lists and
-// no console side effects. runWizard uses newWizardWith and the image's lists.
-func newWizard(disks []Disk) wizardModel {
-	return newWizardWith(disks, curatedKeyboards, curatedTimezones, defaultTimezone)
+// no console side effects.
+func newWizard(disks []core.Disk) wizardModel {
+	return newWizardModel(core.NewWizard(disks))
 }
 
-func newWizardWith(disks []Disk, keyboards []Keyboard, zones []string, tz string) wizardModel {
-	m := wizardModel{
-		step:        stepKeyboard,
-		disks:       disks,
-		keyboards:   keyboards,
-		zones:       zones,
-		applyKeymap: func(string) {},
-		newKey:      newRecoveryKey,
-		pickGroup:   func() int { return recoveryGroupToConfirm(rand.Reader) },
-	}
-	m.choice.KeyboardLayout = defaultLayout
-	m.choice.Timezone = defaultTimezone
-	if validateTimezone(tz) == nil && indexOf(zones, tz) >= 0 {
-		m.choice.Timezone = tz
-	}
-	kl := make([]string, len(keyboards))
-	for i, k := range keyboards {
+func newWizardWith(disks []core.Disk, keyboards []core.Keyboard, zones []string, tz string) wizardModel {
+	return newWizardModel(core.NewWizardWith(disks, keyboards, zones, tz))
+}
+
+func newWizardModel(w core.Wizard) wizardModel {
+	m := wizardModel{Wizard: w}
+	kl := make([]string, len(w.Keyboards))
+	for i, k := range w.Keyboards {
 		kl[i] = k.Description + "  " + k.Code()
 	}
 	m.kbPick = newPicker(kl)
-	m.tzPick = newPicker(zones)
+	m.tzPick = newPicker(w.Zones)
 	m.in = textinput.New()
-	m.enter(stepKeyboard)
+	m.enter(core.PageKeyboard)
 	return m
 }
 
-func indexOf(list []string, v string) int {
-	for i, s := range list {
-		if s == v {
-			return i
-		}
-	}
-	return -1
+func (m *wizardModel) isList() bool {
+	return m.Page == core.PageKeyboard || m.Page == core.PageTimezone
 }
-
-func (m *wizardModel) keyboardIndex() int {
-	for i, k := range m.keyboards {
-		if k.Layout == m.choice.KeyboardLayout && k.Variant == m.choice.KeyboardVariant {
-			return i
-		}
-	}
-	return -1
-}
-
-func (m *wizardModel) isList() bool { return m.step == stepKeyboard || m.step == stepTimezone }
 
 // enter re-seeds the input for step s from already-collected state, so values
 // survive back-navigation instead of being silently cleared.
-func (m *wizardModel) enter(s wizardStep) {
-	m.step = s
+func (m *wizardModel) enter(s core.Page) {
+	m.Page = s
 	m.err = ""
 	m.in.EchoMode = textinput.EchoNormal
 	m.in.Prompt = "> "
 	switch s {
-	case stepKeyboard:
+	case core.PageKeyboard:
 		// The list steps use the input as a search filter, empty on entry,
 		// with the cursor on the current choice.
 		m.in.Prompt = "search: "
 		m.in.SetValue("")
 		m.kbPick.filter("")
-		m.kbPick.selectIndex(m.keyboardIndex())
-	case stepTimezone:
+		m.kbPick.selectIndex(m.KeyboardIndex())
+	case core.PageTimezone:
 		m.in.Prompt = "search: "
 		m.in.SetValue("")
 		m.tzPick.filter("")
-		m.tzPick.selectIndex(indexOf(m.zones, m.choice.Timezone))
-	case stepHostname:
-		m.in.SetValue(orDefault(m.choice.Hostname, defaultHostname))
-	case stepUser:
-		m.in.SetValue(m.choice.Username)
-	case stepPass:
+		m.tzPick.selectIndex(m.TimezoneIndex())
+	case core.PageHostname:
+		m.in.SetValue(m.HostnameValue())
+	case core.PageUser:
+		m.in.SetValue(m.Choice.Username)
+	case core.PagePass:
 		m.in.EchoMode = textinput.EchoPassword
-		m.in.SetValue(m.choice.Password)
-	case stepGithub:
-		m.in.SetValue(m.choice.Github)
-	case stepEncrypt:
+		m.in.SetValue(m.Choice.Password)
+	case core.PageGithub:
+		m.in.SetValue(m.Choice.Github)
+	case core.PageEncrypt:
 		m.encIdx = 0
-		if m.choice.Encrypt {
+		if m.Choice.Encrypt {
 			m.encIdx = 1
 		}
-	case stepPassphrase:
+	case core.PagePassphrase:
 		m.in.EchoMode = textinput.EchoPassword
-		m.in.SetValue(m.choice.Passphrase)
-	case stepPassphraseConfirm:
+		m.in.SetValue(m.Choice.Passphrase)
+	case core.PagePassphraseConfirm:
 		m.in.EchoMode = textinput.EchoPassword
 		m.in.SetValue("")
-	case stepRecovery:
+	case core.PageRecovery:
 		m.recIdx = 0
-		if m.choice.RecoveryKey {
+		if m.Choice.RecoveryKey {
 			m.recIdx = 1
 		}
-	case stepRecoveryConfirm:
+	case core.PageRecoveryConfirm:
 		m.in.SetValue("")
 	}
 	m.in.Focus()
 	m.in.CursorEnd()
-}
-
-// installableDisks is ListDisks for the wizard's purposes. An unreadable
-// sysBlock and an empty one mean the same thing to the user — there is nothing
-// to install onto — and the wizard already has a clear screen for that case, so
-// the error becomes an empty list rather than a bare syscall message printed
-// over the branded UI.
-func installableDisks(sysBlock string) []Disk {
-	disks, err := ListDisks(sysBlock)
-	if err != nil {
-		return nil
-	}
-	return disks
-}
-
-func orDefault(v, def string) string {
-	if v == "" {
-		return def
-	}
-	return v
 }
 
 func (m wizardModel) Init() tea.Cmd { return textinput.Blink }
@@ -389,8 +148,8 @@ func (m wizardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.aborted = true
 		return m, tea.Quit
 	case "esc":
-		if m.step > stepKeyboard {
-			m.enter(m.prevStep())
+		if m.Back() {
+			m.enter(m.Page)
 		}
 		return m, nil
 	}
@@ -398,23 +157,23 @@ func (m wizardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.isList() {
 		return m.updateList(key)
 	}
-	if m.step == stepDisk {
+	if m.Page == core.PageDisk {
 		return m.updateDisk(key)
 	}
-	if m.step == stepEncrypt {
+	if m.Page == core.PageEncrypt {
 		return m.updateEncrypt(key)
 	}
-	if m.step == stepRecovery {
+	if m.Page == core.PageRecovery {
 		return m.updateRecovery(key)
 	}
-	if m.step == stepRecoveryShow {
+	if m.Page == core.PageRecoveryShow {
 		if key.String() == "enter" {
-			m.confirmGroup = m.pickGroup()
-			m.enter(stepRecoveryConfirm)
+			m.KeySaved()
+			m.enter(m.Page)
 		}
 		return m, nil
 	}
-	if m.step == stepReview {
+	if m.Page == core.PageReview {
 		return m.updateReview(key)
 	}
 	if key.String() == "enter" {
@@ -425,91 +184,37 @@ func (m wizardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-// prevStep is where esc goes: the step before, skipping the encryption
-// steps that were not shown.
-func (m wizardModel) prevStep() wizardStep {
-	switch m.step {
-	case stepReview:
-		// Not back to the key: it is shown once, before it is confirmed.
-		if m.choice.Encrypt || m.trustedBoot {
-			return stepRecovery
-		}
-		return stepEncrypt
-	case stepRecovery:
-		if m.choice.Encrypt {
-			// The confirmation needs the first entry: start the
-			// passphrase over.
-			return stepPassphrase
-		}
-		return stepDisk
-	case stepEncrypt:
-		return stepDisk
-	case stepRecoveryShow:
-		return stepRecovery
-	}
-	return m.step - 1
-}
-
+// commitField hands the text field to the wizard. On an error the page
+// stays, and a confirmation field starts over empty.
 func (m wizardModel) commitField() (tea.Model, tea.Cmd) {
-	v := strings.TrimSpace(m.in.Value())
-	switch m.step {
-	case stepRecoveryConfirm:
-		if !confirmsRecoveryKey(m.choice.RecoveryKeyValue, m.confirmGroup, m.in.Value()) {
-			m.in.SetValue("")
-			m.err = fmt.Sprintf("that is not group %d: check what you wrote down, or esc to see the key again", m.confirmGroup+1)
-			return m, nil
-		}
-		m.enter(stepReview)
-	case stepPassphrase:
-		// Not trimmed: the passphrase is used byte for byte, and
-		// validatePassphrase refuses leading and trailing spaces instead.
-		raw := m.in.Value()
-		if err := validatePassphrase(raw); err != nil {
-			m.err = err.Error()
-			return m, nil
-		}
-		m.passphraseFirst = raw
-		m.enter(stepPassphraseConfirm)
-	case stepPassphraseConfirm:
-		if m.in.Value() != m.passphraseFirst {
-			m.in.SetValue("")
-			m.err = "the passphrases do not match: type it again, or esc to start over"
-			return m, nil
-		}
-		m.choice.Passphrase = m.passphraseFirst
-		m.passphraseFirst = ""
-		m.enter(stepRecovery)
-	case stepHostname:
-		m.choice.Hostname = orDefault(v, defaultHostname)
-		m.enter(stepUser)
-	case stepUser:
-		if err := validateUsername(v); err != nil {
-			m.err = err.Error()
-			return m, nil
-		}
-		m.choice.Username = v
-		m.enter(stepPass)
-	case stepPass:
-		if v == "" {
-			m.err = "password is required"
-			return m, nil
-		}
-		m.choice.Password = v
-		m.enter(stepGithub)
-	case stepGithub:
-		// Optional, but not arbitrary: an empty value skips key import, a
-		// non-empty one must be a real handle before it can reach the renderer.
-		if err := validateGithub(v); err != nil {
-			m.err = err.Error()
-			return m, nil
-		}
-		m.choice.Github = v
-		if len(m.disks) == 0 {
-			m.err = "no installable disk found"
-			return m, nil
-		}
-		m.enter(stepDisk)
+	v := m.in.Value()
+	var err error
+	switch m.Page {
+	case core.PageRecoveryConfirm:
+		err = m.ConfirmRecoveryKey(v)
+	case core.PagePassphrase:
+		err = m.SetPassphrase(v)
+	case core.PagePassphraseConfirm:
+		err = m.ConfirmPassphrase(v)
+	case core.PageHostname:
+		m.SetHostname(v)
+	case core.PageUser:
+		err = m.SetUsername(v)
+	case core.PagePass:
+		err = m.SetPassword(v)
+	case core.PageGithub:
+		err = m.SetGithub(v)
+	default:
+		return m, nil
 	}
+	if err != nil {
+		if m.Page == core.PageRecoveryConfirm || m.Page == core.PagePassphraseConfirm {
+			m.in.SetValue("")
+		}
+		m.err = err.Error()
+		return m, nil
+	}
+	m.enter(m.Page)
 	return m, nil
 }
 
@@ -517,7 +222,7 @@ func (m wizardModel) commitField() (tea.Model, tea.Cmd) {
 // picks the entry under the cursor, anything else edits the search filter.
 func (m wizardModel) updateList(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	p := &m.kbPick
-	if m.step == stepTimezone {
+	if m.Page == core.PageTimezone {
 		p = &m.tzPick
 	}
 	switch key.String() {
@@ -539,16 +244,12 @@ func (m wizardModel) updateList(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.err = "nothing matches the search"
 			return m, nil
 		}
-		if m.step == stepKeyboard {
-			k := m.keyboards[i]
-			m.choice.KeyboardLayout, m.choice.KeyboardVariant = k.Layout, k.Variant
-			m.choice.ConsoleKeymap = consoleKeymap(m.keymapsDir, k.Layout, k.Variant)
-			m.applyKeymap(m.choice.ConsoleKeymap)
-			m.enter(stepTimezone)
+		if m.Page == core.PageKeyboard {
+			m.SetKeyboard(i)
 		} else {
-			m.choice.Timezone = m.zones[i]
-			m.enter(stepHostname)
+			m.SetTimezone(i)
 		}
+		m.enter(m.Page)
 		return m, nil
 	}
 	var cmd tea.Cmd
@@ -565,16 +266,12 @@ func (m wizardModel) updateDisk(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.diskIdx--
 		}
 	case "down", "j":
-		if m.diskIdx < len(m.disks)-1 {
+		if m.diskIdx < len(m.Disks)-1 {
 			m.diskIdx++
 		}
 	case "enter":
-		m.choice.Disk = m.disks[m.diskIdx].Path
-		if m.trustedBoot {
-			m.enter(stepRecovery)
-		} else {
-			m.enter(stepEncrypt)
-		}
+		m.SetDisk(m.diskIdx)
+		m.enter(m.Page)
 	}
 	return m, nil
 }
@@ -586,16 +283,8 @@ func (m wizardModel) updateEncrypt(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "down", "j":
 		m.encIdx = 1
 	case "enter":
-		if m.encIdx == 1 {
-			m.choice.Encrypt = true
-			m.enter(stepPassphrase)
-		} else {
-			m.choice.Encrypt = false
-			m.choice.Passphrase = ""
-			m.choice.RecoveryKey = false
-			m.choice.RecoveryKeyValue = ""
-			m.enter(stepReview)
-		}
+		m.SetEncrypt(m.encIdx == 1)
+		m.enter(m.Page)
 	}
 	return m, nil
 }
@@ -607,22 +296,11 @@ func (m wizardModel) updateRecovery(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "down", "j":
 		m.recIdx = 1
 	case "enter":
-		if m.recIdx == 0 {
-			m.choice.RecoveryKey = false
-			m.choice.RecoveryKeyValue = ""
-			m.enter(stepReview)
+		if err := m.SetRecoveryKey(m.recIdx == 1); err != nil {
+			m.err = err.Error()
 			return m, nil
 		}
-		if m.choice.RecoveryKeyValue == "" {
-			k, err := m.newKey()
-			if err != nil {
-				m.err = err.Error()
-				return m, nil
-			}
-			m.choice.RecoveryKeyValue = k
-		}
-		m.choice.RecoveryKey = true
-		m.enter(stepRecoveryShow)
+		m.enter(m.Page)
 	}
 	return m, nil
 }
@@ -682,15 +360,15 @@ func (m wizardModel) updateReview(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m wizardModel) View() string {
 	var b strings.Builder
 	b.WriteString("\n  " + tnHot.Render("ISOTOPE") +
-		tnDim.Render(" // desktop install · "+stepName[m.step]) + "\n\n")
+		tnDim.Render(" // desktop install · "+stepName[m.Page]) + "\n\n")
 
-	switch m.step {
-	case stepKeyboard, stepTimezone:
+	switch m.Page {
+	case core.PageKeyboard, core.PageTimezone:
 		p, labels := m.kbPick, m.kbPick.labels
-		if m.step == stepTimezone {
+		if m.Page == core.PageTimezone {
 			p, labels = m.tzPick, m.tzPick.labels
 		}
-		b.WriteString("  " + prompt(m.step) + "\n")
+		b.WriteString("  " + prompt(m.Page) + "\n")
 		b.WriteString("  " + m.in.View() + "\n\n")
 		from, to := p.window()
 		for pos := from; pos < to; pos++ {
@@ -708,14 +386,14 @@ func (m wizardModel) View() string {
 			b.WriteString("\n  " + haltRed.Render(m.err) + "\n")
 		}
 		hint := "type to search · up/down select · enter confirm"
-		if m.step > stepKeyboard {
+		if m.Page > core.PageKeyboard {
 			hint += " · esc back"
 		}
 		b.WriteString("\n  " + tnDim.Render(hint) + "\n")
 
-	case stepDisk:
+	case core.PageDisk:
 		b.WriteString("  " + tnDim.Render("the selected disk will be ERASED") + "\n\n")
-		for i, d := range m.disks {
+		for i, d := range m.Disks {
 			line := fmt.Sprintf("%s  %d GB", d.Path, d.SizeGB)
 			if i == m.diskIdx {
 				b.WriteString("  " + tnAcc.Render("> "+line) + "\n")
@@ -725,7 +403,7 @@ func (m wizardModel) View() string {
 		}
 		b.WriteString("\n  " + tnDim.Render("up/down select · enter confirm · esc back") + "\n")
 
-	case stepEncrypt:
+	case core.PageEncrypt:
 		b.WriteString("  " + tnHot.Render("Encrypt your files?") + "\n\n")
 		for _, l := range encryptText {
 			b.WriteString("  " + l + "\n")
@@ -740,9 +418,9 @@ func (m wizardModel) View() string {
 		}
 		b.WriteString("\n  " + tnDim.Render("up/down select · enter confirm · esc back") + "\n")
 
-	case stepRecovery:
+	case core.PageRecovery:
 		title, text, opts := "Create a recovery key?", recoveryText, []string{"no, the TPM only", "yes, create a recovery key"}
-		if m.choice.Encrypt {
+		if m.Choice.Encrypt {
 			title, text, opts = "Also create a recovery key?", passphraseRecoveryText, []string{"no, the passphrase only", "yes, also create a recovery key"}
 		}
 		b.WriteString("  " + tnHot.Render(title) + "\n\n")
@@ -762,38 +440,38 @@ func (m wizardModel) View() string {
 		}
 		b.WriteString("\n  " + tnDim.Render("up/down select · enter confirm · esc back") + "\n")
 
-	case stepRecoveryShow:
+	case core.PageRecoveryShow:
 		b.WriteString("  " + tnHot.Render("Your recovery key") + "\n\n")
-		for _, l := range recoveryKeyLines(m.choice.RecoveryKeyValue) {
+		for _, l := range core.RecoveryKeyLines(m.Choice.RecoveryKeyValue) {
 			b.WriteString("  " + tnAcc.Render(l) + "\n")
 		}
 		b.WriteString("\n")
 		b.WriteString("  Write it down or take a photo of it now, and keep it away from\n")
 		b.WriteString("  this computer. It is shown only this once and saved nowhere.\n")
-		b.WriteString("  The letters are only these: " + strings.Join(strings.Split(modhex, ""), " ") + "\n")
+		b.WriteString("  The letters are only these: " + strings.Join(strings.Split(core.Modhex, ""), " ") + "\n")
 		b.WriteString("\n  " + tnDim.Render("enter when you have saved it · esc back") + "\n")
 
-	case stepReview:
-		b.WriteString("  " + haltRed.Render("this ERASES "+m.choice.Disk+" and installs isotope") + "\n\n")
-		b.WriteString("    keyboard   " + tnHot.Render(keyboardLabel(m.choice)) + "\n")
-		b.WriteString("    timezone   " + tnHot.Render(m.choice.Timezone) + "\n")
-		b.WriteString("    hostname   " + tnHot.Render(m.choice.Hostname) + "\n")
-		b.WriteString("    username   " + tnHot.Render(m.choice.Username) + "\n")
-		b.WriteString("    ssh keys   " + tnHot.Render(orDefault(githubLabel(m.choice.Github), "none")) + "\n")
-		b.WriteString("    disk       " + haltRed.Render(m.choice.Disk) + "\n")
-		if m.trustedBoot || m.choice.Encrypt {
+	case core.PageReview:
+		b.WriteString("  " + haltRed.Render("this ERASES "+m.Choice.Disk+" and installs isotope") + "\n\n")
+		b.WriteString("    keyboard   " + tnHot.Render(keyboardLabel(m.Choice)) + "\n")
+		b.WriteString("    timezone   " + tnHot.Render(m.Choice.Timezone) + "\n")
+		b.WriteString("    hostname   " + tnHot.Render(m.Choice.Hostname) + "\n")
+		b.WriteString("    username   " + tnHot.Render(m.Choice.Username) + "\n")
+		b.WriteString("    ssh keys   " + tnHot.Render(orDefault(githubLabel(m.Choice.Github), "none")) + "\n")
+		b.WriteString("    disk       " + haltRed.Render(m.Choice.Disk) + "\n")
+		if m.TrustedBoot || m.Choice.Encrypt {
 			rk := "no"
-			if m.trustedBoot {
+			if m.TrustedBoot {
 				rk = "no (the TPM only)"
 			}
-			if m.choice.RecoveryKey {
+			if m.Choice.RecoveryKey {
 				rk = "yes (you saved it)"
 			}
 			b.WriteString("    recovery   " + tnHot.Render(rk) + "\n")
 		}
-		if !m.trustedBoot {
+		if !m.TrustedBoot {
 			enc := "off"
-			if m.choice.Encrypt {
+			if m.Choice.Encrypt {
 				enc = "on (passphrase at every start)"
 			}
 			b.WriteString("    encrypt    " + tnHot.Render(enc) + "\n")
@@ -801,14 +479,14 @@ func (m wizardModel) View() string {
 		b.WriteString("\n  " + tnDim.Render("enter to INSTALL · esc back") + "\n")
 
 	default:
-		if m.step == stepRecoveryConfirm {
+		if m.Page == core.PageRecoveryConfirm {
 			b.WriteString("  " + m.recoveryPrompt() + "\n")
 		} else {
-			b.WriteString("  " + prompt(m.step) + "\n")
+			b.WriteString("  " + prompt(m.Page) + "\n")
 		}
 		b.WriteString("  " + m.in.View() + "\n")
-		if m.step == stepPassphrase {
-			if h := passphraseStrength(m.in.Value()); h != "" {
+		if m.Page == core.PagePassphrase {
+			if h := core.PassphraseStrength(m.in.Value()); h != "" {
 				b.WriteString("  " + tnDim.Render("strength: "+h) + "\n")
 			}
 		}
@@ -820,8 +498,8 @@ func (m wizardModel) View() string {
 	return b.String()
 }
 
-func keyboardLabel(c Choice) string {
-	return Keyboard{Layout: c.KeyboardLayout, Variant: c.KeyboardVariant}.Code()
+func keyboardLabel(c core.Choice) string {
+	return core.Keyboard{Layout: c.KeyboardLayout, Variant: c.KeyboardVariant}.Code()
 }
 
 func githubLabel(g string) string {
@@ -831,23 +509,23 @@ func githubLabel(g string) string {
 	return "github:" + g
 }
 
-func prompt(s wizardStep) string {
+func prompt(s core.Page) string {
 	switch s {
-	case stepKeyboard:
+	case core.PageKeyboard:
 		return tnDim.Render("keyboard layout")
-	case stepTimezone:
+	case core.PageTimezone:
 		return tnDim.Render("timezone")
-	case stepHostname:
+	case core.PageHostname:
 		return tnDim.Render("hostname for this machine")
-	case stepUser:
+	case core.PageUser:
 		return tnDim.Render("username for the desktop account")
-	case stepPass:
+	case core.PagePass:
 		return tnDim.Render("password for that account")
-	case stepGithub:
+	case core.PageGithub:
 		return tnDim.Render("GitHub username to import SSH keys from (blank to skip)")
-	case stepPassphrase:
-		return tnDim.Render(fmt.Sprintf("disk passphrase, %d characters or more (a few words work well)", minPassphraseLen))
-	case stepPassphraseConfirm:
+	case core.PagePassphrase:
+		return tnDim.Render(fmt.Sprintf("disk passphrase, %d characters or more (a few words work well)", core.MinPassphraseLen))
+	case core.PagePassphraseConfirm:
 		return tnDim.Render("type the disk passphrase again")
 	}
 	return ""
@@ -855,70 +533,32 @@ func prompt(s wizardStep) string {
 
 // recoveryPrompt asks for one group of the recovery key back.
 func (m wizardModel) recoveryPrompt() string {
-	n := m.confirmGroup + 1
-	return tnDim.Render(fmt.Sprintf("to check you saved it, type the %s group of the recovery key (group %d of 8)", ordinal(n), n))
+	n := m.ConfirmGroup + 1
+	return tnDim.Render(fmt.Sprintf("to check you saved it, type the %s group of the recovery key (group %d of 8)", core.Ordinal(n), n))
 }
 
 // --- entry point -----------------------------------------------------------
 
-// runWizard collects the install configuration and writes it to /oem for
-// `kairos-agent install` to merge. It is a no-op when a config is already present,
-// preserving the shell installer's unattended behaviour for seeded installs.
-// It returns what was chosen, or nil when it wrote nothing; the caller needs
-// the choice to hand the disk passphrase to kcrypt.
-func runWizard() (*Choice, error) {
-	out := configOut()
+// runWizard is core.RunWizard with this text wizard as its interactive front
+// end.
+func runWizard() (*core.Choice, error) { return core.RunWizard(askTUI) }
 
-	present, err := ConfigPresent(oemDir(), out)
+// askTUI runs the wizard on the terminal and returns what was confirmed.
+func askTUI(w core.Wizard) (core.Choice, error) {
+	final, err := tea.NewProgram(newWizardModel(w), tea.WithAltScreen()).Run()
 	if err != nil {
-		return nil, err
+		return core.Choice{}, err
 	}
-	if present {
-		// Someone already supplied a users/install config: install unattended.
-		return nil, nil
+	wm, ok := final.(wizardModel)
+	if !ok || wm.aborted || !wm.done {
+		return core.Choice{}, errors.New("install cancelled")
 	}
+	return wm.Choice, nil
+}
 
-	c, nonInteractive, err := choiceFromEnv()
-	if err != nil {
-		return nil, err
+func orDefault(v, def string) string {
+	if v == "" {
+		return def
 	}
-
-	trustedBoot := trustedBootMedium(ukiInstallMarker)
-
-	if nonInteractive {
-		if err := zoneExists(zoneinfoDir, c.Timezone); err != nil {
-			return nil, fmt.Errorf("ISOTOPE_TIMEZONE: %w", err)
-		}
-		if c.Encrypt && trustedBoot {
-			return nil, errors.New("ISOTOPE_ENCRYPT: a Trusted Boot install encrypts with its TPM-sealed key; the passphrase method is for the normal edition")
-		}
-		if os.Getenv("ISOTOPE_RECOVERY_KEY") == "1" {
-			return nil, errRecoveryKeyNonInteractive
-		}
-		c.ConsoleKeymap = consoleKeymap(keymapsDir, c.KeyboardLayout, c.KeyboardVariant)
-	} else {
-		w := newWizardWith(installableDisks("/sys/block"),
-			loadKeyboards(xkbRulesList), loadTimezones(zoneinfoDir), detectTimezone("/etc/localtime"))
-		w.keymapsDir = keymapsDir
-		w.applyKeymap = loadConsoleKeymap
-		w.trustedBoot = trustedBoot
-		final, err := tea.NewProgram(w, tea.WithAltScreen()).Run()
-		if err != nil {
-			return nil, err
-		}
-		wm, ok := final.(wizardModel)
-		if !ok || wm.aborted || !wm.done {
-			return nil, errors.New("install cancelled")
-		}
-		c = wm.choice
-	}
-
-	hash, err := HashPassword(c.Password)
-	if err != nil {
-		return nil, err
-	}
-	if err := writeChoice(out, c, hash); err != nil {
-		return nil, err
-	}
-	return &c, nil
+	return v
 }

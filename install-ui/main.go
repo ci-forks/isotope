@@ -3,138 +3,26 @@ package main
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"syscall"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/kairos-community/isotope/install-ui/core"
 )
-
-// installCommand builds the child install process. ISOTOPE_INSTALL_CMD is the
-// single seam through which a disk wipe happens; tests inject a fake here to
-// assert did/didn't install, so it must keep working exactly as in the shell
-// installer this replaces.
-//
-// manualConfig, when set, is the installer's own cloud-config, and the install
-// runs as `kairos-agent manual-install` on it. The encrypted install needs
-// that: its config says reboot: false so the installer can delete the
-// passphrase file and check the disk first, and `kairos-agent install`
-// answers reboot: false with a
-// "press enter" prompt and a getty on tty1, where this UI is drawing.
-// manual-install returns instead. --use-default-dirs makes it read the same
-// config directories `install` reads, so the two install the same system.
-func installCommand(manualConfig string) *exec.Cmd {
-	if c := os.Getenv("ISOTOPE_INSTALL_CMD"); c != "" {
-		return exec.Command("/bin/sh", "-c", c)
-	}
-	if manualConfig != "" {
-		return exec.Command("/usr/bin/kairos-agent", "manual-install", "--use-default-dirs", manualConfig)
-	}
-	return exec.Command("/usr/bin/kairos-agent", "install")
-}
-
-// postInstall runs after a successful `kairos-agent install`, inside the
-// progress UI; log adds a line to the install log. nil means nothing to do.
-type postInstall func(log func(string)) error
-
-// rebootCommand restarts the machine after an install that asked kairos-agent
-// not to (an encrypted one). ISOTOPE_REBOOT_CMD is the test seam.
-func rebootCommand() *exec.Cmd {
-	if c := os.Getenv("ISOTOPE_REBOOT_CMD"); c != "" {
-		return exec.Command("/bin/sh", "-c", c)
-	}
-	return exec.Command("reboot")
-}
-
-// encryptionSteps returns what an encrypted install does around kairos-agent:
-// pre writes the passphrase where kcrypt reads it, cleanup deletes it again
-// (whether or not the install worked), post checks the disk. All three are
-// nil for a choice without encryption, for --progress-only (the agent
-// appliance) and for a seeded config.
-//
-// A Trusted Boot install with a recovery key has no passphrase file: pre does
-// nothing, post adds the key to the TPM-sealed containers kairos-agent left
-// (enrollRecoveryKey writes and deletes its own 0600 file around that), and
-// cleanup makes sure that file is gone.
-func encryptionSteps(c *Choice) (pre func() error, cleanup func() error, post postInstall) {
-	if c != nil && c.RecoveryKey && !c.Encrypt {
-		disk, key := c.Disk, c.RecoveryKeyValue
-		pre = func() error { return nil }
-		cleanup = func() error { return removePassphraseFile(recoveryKeyFile) }
-		post = func(log func(string)) error { return enrollRecoveryKey(execRunner, disk, key, log) }
-		return pre, cleanup, post
-	}
-	if c == nil || !c.Encrypt {
-		return nil, nil, nil
-	}
-	disk, passphrase := c.Disk, c.Passphrase
-	withKey, key := c.RecoveryKey, c.RecoveryKeyValue
-	pre = func() error { return writePassphraseFile(passphraseFile, passphrase) }
-	cleanup = func() error {
-		err := removePassphraseFile(passphraseFile)
-		if rerr := removePassphraseFile(recoveryKeyFile); err == nil {
-			err = rerr
-		}
-		return err
-	}
-	post = func(log func(string)) error {
-		if !withKey {
-			// The file goes before the check, so it is gone even when
-			// the check fails and the person walks away from the
-			// failure screen.
-			if err := cleanup(); err != nil {
-				return fmt.Errorf("deleting %s: %w", passphraseFile, err)
-			}
-			return verifyEncryption(execRunner, disk, passphrase, log)
-		}
-		// With a recovery key the passphrase file is the existing key
-		// cryptsetup unlocks with to add it. It goes right after, and on
-		// any failure.
-		err := verifyEncryption(execRunner, disk, passphrase, log)
-		if err == nil {
-			err = enrollRecoveryKeyWith(execRunner, disk, key, &passphraseFile, log)
-		}
-		if cerr := cleanup(); cerr != nil && err == nil {
-			err = fmt.Errorf("deleting %s: %w", passphraseFile, cerr)
-		}
-		return err
-	}
-	return pre, cleanup, post
-}
 
 // runInstall runs the installer as a subprocess, rendering the branded progress
 // UI from its output. kairos-agent has no progress API, so its stdout is the
-// only signal available (see steps.go). post, when set, runs after a
+// only signal available (see core/steps.go). post, when set, runs after a
 // successful install and its failure is an install failure.
-func runInstall(manualConfig string, post postInstall) error {
-	cmd := installCommand(manualConfig)
-
-	// The child must never read the terminal: bubbletea owns it.
-	devnull, err := os.OpenFile(os.DevNull, os.O_RDWR, 0)
+func runInstall(manualConfig string, post core.PostInstall) error {
+	in, err := core.NewInstall(manualConfig, post)
 	if err != nil {
 		return err
 	}
-	defer devnull.Close()
-	cmd.Stdin = devnull
-
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return err
-	}
-	cmd.Stderr = cmd.Stdout // merge, so failures show up in the log viewport
+	defer in.Close()
 
 	p := tea.NewProgram(newModel(), tea.WithAltScreen())
-	go func() {
-		if err := cmd.Start(); err != nil {
-			p.Send(doneMsg{err: err})
-			return
-		}
-		streamLines(stdout, p.Send)
-		err := cmd.Wait()
-		if err == nil && post != nil {
-			err = post(func(l string) { p.Send(lineMsg(l)) })
-		}
-		p.Send(doneMsg{err: err})
-	}()
+	go in.Run(func(e core.Event) { p.Send(eventMsg(e)) })
 
 	final, err := p.Run()
 	if err != nil {
@@ -164,7 +52,7 @@ func main() {
 
 	// --progress-only (the agent appliance's installer) never runs the
 	// wizard, so it never offers encryption.
-	var choice *Choice
+	var choice *core.Choice
 	if !progressOnly {
 		c, err := runWizard()
 		if err != nil {
@@ -174,10 +62,10 @@ func main() {
 		choice = c
 	}
 
-	pre, cleanup, post := encryptionSteps(choice)
+	pre, cleanup, post := core.EncryptionSteps(choice)
 	manualConfig := ""
 	if pre != nil {
-		manualConfig = configOut()
+		manualConfig = core.ConfigOut()
 		if err := pre(); err != nil {
 			fmt.Fprintf(os.Stderr, "isotope-install-ui: %v\n", err)
 			os.Exit(1)
@@ -197,7 +85,7 @@ func main() {
 	}
 	if post != nil {
 		// The encrypted install told kairos-agent not to reboot.
-		if err := rebootCommand().Run(); err != nil {
+		if err := core.RebootCommand().Run(); err != nil {
 			fmt.Fprintf(os.Stderr, "isotope-install-ui: reboot: %v\n", err)
 			os.Exit(1)
 		}
