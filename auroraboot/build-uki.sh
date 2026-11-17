@@ -25,7 +25,7 @@ cd "$(dirname "$0")/.."
 IMAGE="${1:?usage: build-uki.sh <IMAGE> <OUT_DIR> <KEYS_DIR>}"
 OUT_DIR="${2:?usage: build-uki.sh <IMAGE> <OUT_DIR> <KEYS_DIR>}"
 KEYS_DIR="${3:?usage: build-uki.sh <IMAGE> <OUT_DIR> <KEYS_DIR>}"
-AURORA_IMAGE="${AURORA_IMAGE:-quay.io/kairos/auroraboot:v0.29.0}"
+AURORA_IMAGE="${AURORA_IMAGE:-quay.io/kairos/auroraboot:v0.30.0}"
 SECURE_BOOT_ENROLL="${SECURE_BOOT_ENROLL:-if-safe}"
 
 for f in db.key db.pem tpm2-pcr-private.pem PK.auth KEK.auth db.auth; do
