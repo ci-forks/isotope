@@ -4695,7 +4695,7 @@ COPY rootfs/usr/lib/dracut/ /usr/lib/dracut/
 COPY rootfs/etc/vconsole.conf /etc/vconsole.conf
 COPY rootfs/etc/kairos/ /etc/kairos/
 COPY rootfs/usr/libexec/isotope-grub-theme /usr/libexec/isotope-grub-theme
-COPY rootfs/system/oem/08_isotope_rename.yaml rootfs/system/oem/09_isotope_grub_theme.yaml rootfs/system/oem/10_isotope_grub_env.yaml /system/oem/
+COPY rootfs/system/oem/08_isotope_rename.yaml rootfs/system/oem/09_isotope_grub_theme.yaml rootfs/system/oem/10_isotope_grub_env.yaml rootfs/system/oem/11_isotope_efi_boot_entry.yaml /system/oem/
 # The installer, and system extensions.
 COPY rootfs/system/oem/90_desktop_installer.yaml rootfs/system/oem/93_isotope_extensions.yaml /system/oem/
 COPY rootfs/etc/isotope/extensions.conf /etc/isotope/extensions.conf
