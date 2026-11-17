@@ -4782,6 +4782,13 @@ FROM scratch AS gl-niri
 COPY --from=mesa /mesa /
 FROM scratch AS gl-i3
 COPY --from=mesa-x11 /mesa-x11 /
+# mesa-x11's egl.pc requires the X11 and xcb libraries, so pkg-config needs
+# their .pc files (and the linker their libraries) to build against it.
+COPY --from=xorgproto /xorgproto /
+COPY --from=xcbproto /xcbproto /
+COPY --from=libxau /libxau /
+COPY --from=libxcb /libxcb /
+COPY --from=x11-libs /x11-libs /
 FROM scratch AS gl-server
 FROM gl-${DESKTOP} AS gl
 
