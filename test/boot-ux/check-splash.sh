@@ -35,6 +35,15 @@ check "booted splash ordered before ly on tty1" \
     'grep -qx "Before=ly@tty1.service" /usr/lib/systemd/system/kairos-splash.service.d/10-isotope.conf'
 # The splash this replaced must be gone entirely, or two animations fight
 # over tty1.
+# bootvine, which the splash hands the screen to on D. Installed, never
+# enabled: only the splash starts it.
+check "bootvine runs" '/usr/bin/bootvine --version'
+check "bootvine.service installed but not enabled" \
+    'test -f /usr/lib/systemd/system/bootvine.service && ! find /etc/systemd /usr/lib/systemd -name bootvine.service -path "*.wants/*" | grep -q .'
+check "the splash offers D only when bootvine is there" \
+    'grep -aq "Press D for boot details" /usr/bin/kairos-splash'
+check "installed GRUB menu has the boot details entry" \
+    'grep -q "^menuentry \"\${display_name} (boot details)\" --id isotope-boot-details" /etc/kairos/branding/grubmenu.cfg && grep -q " isotope.bootvine$" /etc/kairos/branding/grubmenu.cfg'
 check "no leftover isotope-splash unit or dracut module" \
     '! test -e /usr/lib/systemd/system/isotope-splash.service && ! test -e /usr/lib/dracut/modules.d/50isotope-splash && ! test -e /etc/dracut.conf.d/50-isotope-splash.conf'
 
