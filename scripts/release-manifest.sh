@@ -10,6 +10,10 @@
 #   iso-asset-path  path to the ISO; its sibling .sha256 must already exist
 #   out.json        where to write the manifest
 #
+# TRUSTED_BOOT=true in the environment marks the Trusted Boot (UKI) build of
+# a full line (release.yml job build-uki): the ISO is
+# isotope-<flavor>-uki-<tag>-amd64.iso and the manifest says trusted_boot.
+#
 # Every field is read back from the thing that produced it -- the Makefile, the
 # Dockerfiles, the built image -- rather than hardcoded here, so a manifest
 # cannot quietly drift from what was actually built. Any field that cannot be
@@ -64,6 +68,11 @@ check_image_labels() {
 
 [ "$#" -eq 6 ] || die "usage: $0 <flavor> <gpu> <release-tag> <image> <iso-asset-path> <out.json>"
 flavor="$1" gpu="$2" release_tag="$3" image="$4" iso_path="$5" out="$6"
+trusted_boot="${TRUSTED_BOOT:-false}"
+case "$trusted_boot" in
+  true|false) ;;
+  *) die "TRUSTED_BOOT is '$trusted_boot', want true or false" ;;
+esac
 
 case "$flavor" in
   sway|i3|cosmic|niri|server|agent) ;;
@@ -73,6 +82,11 @@ case "$flavor/$gpu" in
   agent/vm | server/full | sway/full | sway/vm | i3/full | i3/vm | cosmic/full | cosmic/vm | niri/full | niri/vm) ;;
   *) die "unknown line for $flavor: $gpu (want full or vm; agent is vm only, server full only)" ;;
 esac
+# Trusted Boot is for real machines with a TPM: the full line only, and
+# never the agent, a VM appliance.
+if [ "$trusted_boot" = true ] && { [ "$gpu" != full ] || [ "$flavor" = agent ]; }; then
+  die "no Trusted Boot build for $flavor/$gpu (full line only, not agent)"
+fi
 [ -f "$iso_path" ]           || die "no ISO at $iso_path"
 [ -f "$iso_path.sha256" ]    || die "no checksum at $iso_path.sha256"
 command -v jq >/dev/null     || die "jq is required"
@@ -146,6 +160,7 @@ jq -n \
   --arg desktop_flavor "$flavor" \
   --arg gpu "$gpu" \
   --argjson firmware "$firmware" \
+  --argjson trusted_boot "$trusted_boot" \
   --argjson xlibre_version "$xlibre_version" \
   --argjson cua_revision "$cua_revision" \
   --argjson atspi_version "$atspi_version" \
@@ -160,6 +175,7 @@ jq -n \
      desktop_flavor: $desktop_flavor,
      gpu: $gpu,
      firmware: $firmware,
+     trusted_boot: $trusted_boot,
      xlibre_version: $xlibre_version,
      cua_revision: $cua_revision,
      atspi_version: $atspi_version

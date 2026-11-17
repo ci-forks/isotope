@@ -1,7 +1,8 @@
 # Trusted Boot edition (UKI, Secure Boot, TPM-sealed encryption)
 
-Date: 2026-11-07. Status: prototype measured in QEMU; release line written but
-off (`vars.TRUSTED_BOOT_RELEASE`).
+Date: 2026-11-07. Status: prototype measured in QEMU; release lines for every
+full flavor and the server written, off until the keys are set and
+`vars.TRUSTED_BOOT_RELEASE` is `true` (see ../../TRUSTED_BOOT_KEYS.md).
 
 ## What it is
 
@@ -171,23 +172,32 @@ option ROMs signed by Microsoft; we keep `if-safe`.
 
 ## Release (`.github/workflows/release.yml`, job `build-uki`)
 
-One line first: **sway, full GPU line**, because Trusted Boot is for real
-machines with a TPM. The job needs `build`, runs only when the repository
-variable `TRUSTED_BOOT_RELEASE` is `true`, and:
+Every full line (sway, i3, cosmic, niri) and the server, because Trusted Boot
+is for real machines with a TPM; not the vm lines, not the agent. (2026-11-17:
+was sway only.) The job needs `build`, runs only when the repository variable
+`TRUSTED_BOOT_RELEASE` is `true`, and per line:
 
-1. writes the keys from secrets to `/dev/shm/uki-keys`;
-2. `make DESKTOP=sway GPU=full FIRMWARE=true UKI_FROM=$IMAGE_REPO:sway-<tag> uki-iso`
+1. writes the keys from secrets to `/dev/shm/uki-keys` and checks that
+   `db.pem` is the certificate of `db.key`;
+2. `make DESKTOP=<flavor> GPU=full FIRMWARE=true UKI_FROM=$IMAGE_REPO:<flavor>-<tag> uki-iso`
    (no desktop rebuild: only the kairos stage, ~1 min);
-3. `build-uki -t container`, wrapped with the `io.kairos.hadron-desktop.*`
-   labels plus `trusted-boot=true`, pushed and cosign-signed as
-   `sway-uki-<tag>` (tested locally: the wrap works, 364 MiB);
-4. uploads the ISO as artifact `uki-sway-uki`, deliberately not `release-*`,
-   so the publish job's strict asset count and manifest checks are untouched.
+3. an SBOM and a build manifest with `trusted_boot: true`;
+4. `build-uki -t container`, wrapped with the `io.kairos.isotope.*` (and
+   legacy `io.kairos.hadron-desktop.*`) labels plus `trusted-boot=true`,
+   pushed and cosign-signed as `<flavor>-uki-<tag>`;
+5. reports the largest UKI's size in the job summary;
+6. uploads the ISO as artifact `release-uki-<flavor>`.
 
-Before it is switched on: add the ISO to the publish job (asset count,
-manifest schema with a `trusted_boot` field, public-image check for
-`<flavor>-uki-<tag>`), and a UKI size gate (fail above ~700 MiB, which keeps
-five copies inside a 4 GiB ESP).
+The release job then expects 15 ISOs instead of 10, the five
+`<flavor>/full/uki` manifests, and five more public `<flavor>-uki-<tag>`
+images. It runs with build-uki skipped only while the variable is off.
+
+No size gate: the full lines are bigger than the 700 MiB this note first
+planned for (the cosmic image is ~1.1 GiB compressed), and Kairos sizes the
+ESP of a UKI install from the image (15 GiB, or 3 times the image if that is
+more), so it does not overflow. RAM is the real limit; the reported size
+goes into the release notes. Keys and how to create them:
+[TRUSTED_BOOT_KEYS.md](../../TRUSTED_BOOT_KEYS.md).
 
 ## hadron-update on a Trusted Boot system
 
