@@ -179,7 +179,7 @@ func cmdStatus(name string, args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "Pin:        %s\n", orNone(currentPin()))
 	}
 
-	latest, err := FetchLatest(context.Background(), rel.GitHubRepo)
+	latest, err := FetchLatest(context.Background(), rel.GitHubRepo, rel.TrustedBoot)
 	if err != nil {
 		fmt.Fprintln(stderr, "isotope: could not check for updates:", err)
 		return exitError
@@ -253,7 +253,7 @@ func cmdUpgrade(args []string, stdin io.Reader, stdout, stderr io.Writer) (code 
 
 	tag := *version
 	if tag == "" {
-		latest, err := FetchLatest(context.Background(), rel.GitHubRepo)
+		latest, err := FetchLatest(context.Background(), rel.GitHubRepo, rel.TrustedBoot)
 		if err != nil {
 			fmt.Fprintln(stderr, "isotope: could not check for updates:", err)
 			return exitError

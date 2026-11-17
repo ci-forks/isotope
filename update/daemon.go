@@ -354,7 +354,7 @@ func (d *Daemon) fetchReleases(ctx context.Context) ([]Latest, error) {
 	}
 	d.relMu.Unlock()
 
-	published, err := FetchReleases(ctx, d.rel.GitHubRepo)
+	published, err := FetchReleases(ctx, d.rel.GitHubRepo, d.rel.TrustedBoot)
 	if err != nil {
 		return nil, err
 	}

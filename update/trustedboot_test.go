@@ -1,8 +1,12 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -245,11 +249,105 @@ func appendRelease(t *testing.T, lines string) {
 	}
 }
 
-// setupTrustedBoot is setup on a Trusted Boot system.
+// setupTrustedBoot is setup on a Trusted Boot system: v0.2.0 is the latest
+// release, with a uki manifest.
 func setupTrustedBoot(t *testing.T, flavor string) {
 	t.Helper()
 	setupFlavor(t, flavor, "v0.1.0", "v0.2.0")
 	appendRelease(t, "TRUSTED_BOOT=true\n")
+	fakeGitHubReleases(t, "", withUKIManifests(t, `[{"tag_name":"v0.2.0","html_url":"https://example.invalid/v0.2.0"}]`))
+}
+
+// withUKIManifests is withManifests for a release that build-uki also
+// finished: every entry without "assets" gets an uploaded sway manifest and
+// an uploaded sway-uki one.
+func withUKIManifests(t *testing.T, releases string) string {
+	t.Helper()
+	var list []map[string]any
+	if err := json.Unmarshal([]byte(releases), &list); err != nil {
+		t.Fatalf("releases fixture: %v", err)
+	}
+	for _, r := range list {
+		if _, ok := r["assets"]; !ok {
+			r["assets"] = []map[string]string{
+				{"name": fmt.Sprintf("isotope-sway-%v-amd64.iso.build.json", r["tag_name"]), "state": "uploaded"},
+				{"name": fmt.Sprintf("isotope-sway-uki-%v-amd64.iso.build.json", r["tag_name"]), "state": "uploaded"},
+			}
+		}
+	}
+	b, err := json.Marshal(list)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+// mixedReleases: v0.3.0 was built with TRUSTED_BOOT_RELEASE off (normal
+// manifests only); v0.2.9 has a uki manifest; v0.2.8's uki manifest is
+// still uploading; v0.2.7 has a uki ISO but no uki manifest.
+const mixedReleases = `[
+	{"tag_name":"v0.3.0","assets":[
+		{"name":"isotope-sway-v0.3.0-amd64.iso.build.json","state":"uploaded"},
+		{"name":"isotope-niri-v0.3.0-amd64.iso.build.json","state":"uploaded"}]},
+	{"tag_name":"v0.2.9","assets":[
+		{"name":"isotope-sway-v0.2.9-amd64.iso.build.json","state":"uploaded"},
+		{"name":"isotope-niri-uki-v0.2.9-amd64.iso.build.json","state":"uploaded"}]},
+	{"tag_name":"v0.2.8","assets":[
+		{"name":"isotope-sway-v0.2.8-amd64.iso.build.json","state":"uploaded"},
+		{"name":"isotope-sway-uki-v0.2.8-amd64.iso.build.json","state":"open"}]},
+	{"tag_name":"v0.2.7","assets":[
+		{"name":"isotope-sway-v0.2.7-amd64.iso.build.json","state":"uploaded"},
+		{"name":"isotope-sway-uki-v0.2.7-amd64.iso","state":"uploaded"}]}
+]`
+
+func TestFetchReleasesTrustedBootNeedsAUKIManifest(t *testing.T) {
+	fakeGitHubReleases(t, "", mixedReleases)
+	for _, c := range []struct {
+		trustedBoot bool
+		want        []string
+	}{
+		{false, []string{"v0.3.0", "v0.2.9", "v0.2.8", "v0.2.7"}}, // any manifest, as before
+		{true, []string{"v0.2.9"}},
+	} {
+		got, err := FetchReleases(context.Background(), "kairos-community/isotope", c.trustedBoot)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var tags []string
+		for _, l := range got {
+			tags = append(tags, l.Tag)
+		}
+		if !reflect.DeepEqual(tags, c.want) {
+			t.Errorf("trustedBoot=%v: tags %v, want %v", c.trustedBoot, tags, c.want)
+		}
+		latest, err := FetchLatest(context.Background(), "kairos-community/isotope", c.trustedBoot)
+		if err != nil || latest.Tag != c.want[0] {
+			t.Errorf("trustedBoot=%v: latest %+v, %v; want %s", c.trustedBoot, latest, err, c.want[0])
+		}
+	}
+	// Nothing with a uki manifest: a Trusted Boot system has no update.
+	fakeGitHubReleases(t, "", `[{"tag_name":"v0.3.0","assets":[{"name":"isotope-sway-v0.3.0-amd64.iso.build.json","state":"uploaded"}]}]`)
+	if _, err := FetchLatest(context.Background(), "kairos-community/isotope", true); err == nil {
+		t.Error("Trusted Boot: want an error when no release has a uki manifest")
+	}
+}
+
+// `isotope status` reads the same rule: a Trusted Boot system is not told
+// about a release it cannot pull; a GRUB system is.
+func TestStatusLatestFollowsTheLine(t *testing.T) {
+	setupTrustedBoot(t, "sway")
+	f := okDaemon()
+	useDaemon(t, f)
+	fakeGitHubReleases(t, "", mixedReleases)
+	if _, out, e := runCLI("", "status"); !strings.Contains(out, "Latest:     v0.2.9 is available.") {
+		t.Errorf("Trusted Boot: out %q, stderr %q", out, e)
+	}
+	setup(t, "v0.1.0", "v0.2.0")
+	useDaemon(t, f)
+	fakeGitHubReleases(t, "", mixedReleases)
+	if _, out, e := runCLI("", "status"); !strings.Contains(out, "Latest:     v0.3.0 is available.") {
+		t.Errorf("GRUB: out %q, stderr %q", out, e)
+	}
 }
 
 func TestTrustedBootUpgradesAlongTheUKILine(t *testing.T) {

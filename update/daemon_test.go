@@ -434,11 +434,13 @@ func TestAdvancedOverridesOnlyNotIsotope(t *testing.T) {
 	}
 }
 
-// trustedBootEnv is daemonEnv on a Trusted Boot system.
+// trustedBootEnv is daemonEnv on a Trusted Boot system, whose releases also
+// carry a uki manifest.
 func trustedBootEnv(t *testing.T, installed string) daemonDigests {
 	t.Helper()
 	dg := daemonEnv(t, installed)
 	appendRelease(t, "TRUSTED_BOOT=true\n")
+	fakeGitHubReleases(t, "", withUKIManifests(t, daemonReleases))
 	return dg
 }
 
@@ -493,6 +495,22 @@ func TestTrustedBootLineThroughTheDaemon(t *testing.T) {
 				t.Fatal("backend called for a refused image")
 			}
 		})
+	}
+}
+
+// A release with normal manifests only (built with TRUSTED_BOOT_RELEASE
+// off) is not published for a Trusted Boot daemon: no update, and its uki
+// tag is not trusted.
+func TestTrustedBootDaemonIgnoresReleasesWithoutUKIManifests(t *testing.T) {
+	trustedBootEnv(t, "v0.0.5")
+	fakeGitHubReleases(t, "", daemonReleases) // normal manifests only
+	d := NewDaemon(&fakeBackend{})
+	if _, _, err := d.Inspect(context.Background(), ghcrRepo+":sway-uki-v0.0.6", false); !errors.Is(err, ErrNotIsotope) {
+		t.Fatalf("Inspect: %v, want ErrNotIsotope", err)
+	}
+	d.Check(context.Background())
+	if s := d.Status(); s.State == StateUpdateAvailable {
+		t.Fatalf("offered %q to Trusted Boot without a uki manifest", s.Latest)
 	}
 }
 
