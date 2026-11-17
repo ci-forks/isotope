@@ -26,7 +26,8 @@ ARG DESKTOP=sway
 # GPU=vm (default): software/virtual GL only (llvmpipe, virgl, softpipe, svga).
 #   llvmpipe links libLLVM, so the llvm stage below is built (or taken from
 #   LLVM_IMAGE), but not the SPIRV stages.
-# GPU=full: also hardware GL (iris/radeonsi), which adds the SPIRV stack below.
+# GPU=full: also hardware GL (iris/radeonsi/nouveau), which adds the SPIRV
+#   stack below.
 ARG GPU=vm
 # kairos-init image for the bootable layer (final `kairos` stage). kairos-init
 # now lives in the kairos-io/kairos monorepo, whose master pipeline promotes
@@ -233,13 +234,16 @@ RUN pip3 install meson ninja setuptools mako pyyaml
 # GPU=vm (default): software/virtual GL only (llvmpipe/virgl/softpipe/svga).
 # GPU=full: also real hardware GL — iris (Intel) + radeonsi (AMD), linked
 #   against the LLVM/libclc/SPIRV stack built by the stages above (rsync'd into
-#   /usr). Pair with --build-arg FIRMWARE=true so the i915/amdgpu blobs are
+#   /usr), and nouveau (NVIDIA), which needs only libdrm_nouveau. Without
+#   nouveau, a compositor on an NVIDIA GPU has KMS but no GL or GBM driver for
+#   the render node, and shows only the cursor. Pair with --build-arg
+#   FIRMWARE=true so the i915/amdgpu blobs and nouveau's GSP firmware are
 #   present.
 ARG GPU=vm
 # The example's libLLVM is built without RTTI, so Mesa must disable it too
 # (cpp_rtti=false).
 RUN if [ "$GPU" = "full" ]; then \
-      DRV="iris,radeonsi,llvmpipe,virgl,softpipe,svga"; \
+      DRV="iris,radeonsi,nouveau,llvmpipe,virgl,softpipe,svga"; \
     else \
       DRV="llvmpipe,virgl,softpipe,svga"; \
     fi; \
@@ -2504,7 +2508,7 @@ RUN curl --retry 5 --retry-delay 3 --retry-all-errors -fL https://archive.mesa3d
 WORKDIR /build/src
 RUN pip3 install meson ninja setuptools mako pyyaml
 RUN if [ "$GPU" = "full" ]; then \
-      DRV="iris,radeonsi,llvmpipe,virgl,softpipe,svga"; \
+      DRV="iris,radeonsi,nouveau,llvmpipe,virgl,softpipe,svga"; \
     else \
       DRV="llvmpipe,virgl,softpipe,svga"; \
     fi; \

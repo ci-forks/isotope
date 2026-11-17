@@ -212,11 +212,12 @@ jobs:
           docker push "$STAGE_OUT"
 
   # Every flavor in two lines. full (GPU=full FIRMWARE=true) is the standard
-  # one: Mesa's iris and radeonsi drivers and linux-firmware for real Intel and
-  # AMD machines, with llvmpipe for VMs too. vm (GPU=vm) has only the virtual
-  # and software drivers and no firmware: smaller, for VMs. The server edition
-  # (no desktop) has one line, server-<tag>; it is GPU=full only to name that
-  # line, and takes network card firmware instead of the desktop set.
+  # one: Mesa's iris, radeonsi and nouveau drivers and linux-firmware for real
+  # Intel, AMD and NVIDIA machines, with llvmpipe for VMs too. vm (GPU=vm) has
+  # only the virtual and software drivers and no firmware: smaller, for VMs.
+  # The server edition (no desktop) has one line, server-<tag>; it is GPU=full
+  # only to name that line, and takes network card firmware instead of the
+  # desktop set.
   build:
     name: Build ${{ matrix.desktop }} ISO (${{ matrix.gpu }})
     needs: [llvm, cosmic]

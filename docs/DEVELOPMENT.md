@@ -81,8 +81,8 @@ kairos-init from the Kairos monorepo (`ghcr.io/kairos-io/kairos/kairos-init:mast
   from a GSettings vendor override (`color-scheme='prefer-dark'`, GTK3 theme
   `Adwaita-dark`); on COSMIC the COSMIC portal reports COSMIC's own theme.
 - **Two images per desktop:** the standard one, for desktops and laptops, has
-  Mesa's Intel (`iris`) and AMD (`radeonsi`) drivers, a chosen part of
-  `linux-firmware`, Intel SOF audio firmware and CPU microcode
+  Mesa's Intel (`iris`), AMD (`radeonsi`) and NVIDIA (`nouveau`) drivers, a
+  chosen part of `linux-firmware`, Intel SOF audio firmware and CPU microcode
   (`GPU=full FIRMWARE=true`). The VM one has only
   `llvmpipe`, `virgl` and the other virtual drivers, and no firmware
   (`GPU=vm`, the default of a local build). Both run in a VM; the VM one is
@@ -513,7 +513,8 @@ other display (virtio-gpu or QXL without 3D, `-vga std`, or real hardware with
 with LLVM. `softpipe` is only a fallback that `GALLIUM_DRIVER=softpipe`
 selects: it is 60-190 times slower than `llvmpipe` (a key press in the COSMIC
 greeter took about 6 s to reach the screen). For accelerated GL on real
-Intel/AMD laptops, build with `GPU=full`, as the release builds the full line:
+Intel, AMD and NVIDIA laptops, build with `GPU=full`, as the release builds the
+full line:
 
 ```sh
 docker build --build-arg GPU=full --build-arg FIRMWARE=true \
@@ -523,8 +524,12 @@ docker build --build-arg DESKTOP=i3 --build-arg GPU=full \
   --build-arg FIRMWARE=true -t i3-desktop:hw .
 ```
 
-`GPU=full` also builds Mesa `iris` (Intel) + `radeonsi` (AMD). Every mode links
-LLVM (`llvmpipe` needs it); `iris` and `radeonsi` also need libclc and SPIRV.
+`GPU=full` also builds Mesa `iris` (Intel), `radeonsi` (AMD) and `nouveau`
+(NVIDIA, the open kernel driver; no NVK Vulkan). Every mode links LLVM
+(`llvmpipe` needs it); `iris` and `radeonsi` also need libclc and SPIRV;
+`nouveau` needs only `libdrm_nouveau`, which the libdrm stage builds. Without
+`nouveau`, a compositor on an NVIDIA GPU finds no GL or GBM driver for the
+render node: the screen shows the hardware cursor and nothing else.
 The example builds its **own** LLVM/clang/libclc + SPIRV stack on top of the
 published `hadron-toolchain` (same musl ABI — no Alpine cross-mix) as dedicated
 stages in this Dockerfile, so **the main Hadron toolchain is never touched and
