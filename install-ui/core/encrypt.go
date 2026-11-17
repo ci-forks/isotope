@@ -1,4 +1,4 @@
-package main
+package core
 
 import (
 	"bytes"
@@ -61,14 +61,14 @@ func trustedBootMedium(marker string) bool {
 // a tmpfs on the live system, so the file never touches a disk.
 var passphraseFile = "/run/isotope-install/passphrase"
 
-// minPassphraseLen is the shortest disk passphrase the installer takes. The
+// MinPassphraseLen is the shortest disk passphrase the installer takes. The
 // passphrase is the only key, and anyone with the disk can guess offline, so
 // it is longer than the login password.
-const minPassphraseLen = 12
+const MinPassphraseLen = 12
 
-func validatePassphrase(p string) error {
-	if len([]rune(p)) < minPassphraseLen {
-		return fmt.Errorf("the passphrase must be at least %d characters", minPassphraseLen)
+func ValidatePassphrase(p string) error {
+	if len([]rune(p)) < MinPassphraseLen {
+		return fmt.Errorf("the passphrase must be at least %d characters", MinPassphraseLen)
 	}
 	if strings.TrimSpace(p) != p {
 		return errors.New("the passphrase must not start or end with a space")
@@ -81,16 +81,16 @@ func validatePassphrase(p string) error {
 	return nil
 }
 
-// passphraseStrength is a rough hint for the person typing, not a policy:
+// PassphraseStrength is a rough hint for the person typing, not a policy:
 // length times the bits of the character classes used. Four or five random
 // words in lower case come out "strong" by length alone, which is right.
-func passphraseStrength(p string) string {
+func PassphraseStrength(p string) string {
 	n := len([]rune(p))
 	if n == 0 {
 		return ""
 	}
-	if n < minPassphraseLen {
-		return fmt.Sprintf("too short: %d of %d characters", n, minPassphraseLen)
+	if n < MinPassphraseLen {
+		return fmt.Sprintf("too short: %d of %d characters", n, MinPassphraseLen)
 	}
 	var lower, upper, digit, other bool
 	for _, r := range p {

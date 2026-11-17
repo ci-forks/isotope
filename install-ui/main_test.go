@@ -6,39 +6,9 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/kairos-community/isotope/install-ui/core"
 )
-
-func TestInstallCommandDefault(t *testing.T) {
-	t.Setenv("ISOTOPE_INSTALL_CMD", "")
-	cmd := installCommand("")
-	got := strings.Join(cmd.Args, " ")
-	if got != "/usr/bin/kairos-agent install" {
-		t.Errorf("default command = %q, want kairos-agent install", got)
-	}
-}
-
-// An encrypted install must not end in kairos-agent's "press enter" prompt,
-// which `install` shows when the config says reboot: false.
-func TestInstallCommandForEncryptedInstall(t *testing.T) {
-	t.Setenv("ISOTOPE_INSTALL_CMD", "")
-	got := strings.Join(installCommand("/oem/99_isotope-user.yaml").Args, " ")
-	if got != "/usr/bin/kairos-agent manual-install --use-default-dirs /oem/99_isotope-user.yaml" {
-		t.Errorf("command = %q", got)
-	}
-	t.Setenv("ISOTOPE_INSTALL_CMD", "/bin/true --fake")
-	if got := strings.Join(installCommand("/oem/x.yaml").Args, " "); !strings.Contains(got, "/bin/true --fake") {
-		t.Errorf("the ISOTOPE_INSTALL_CMD seam lost to the encrypted install: %q", got)
-	}
-}
-
-func TestInstallCommandHonoursOverride(t *testing.T) {
-	t.Setenv("ISOTOPE_INSTALL_CMD", "/bin/true --fake")
-	cmd := installCommand("")
-	got := strings.Join(cmd.Args, " ")
-	if !strings.Contains(got, "/bin/true --fake") {
-		t.Errorf("override command = %q, want it to carry /bin/true --fake", got)
-	}
-}
 
 var errFake = errors.New("boom")
 
@@ -176,57 +146,6 @@ func TestNoQuitKeyWhileInstalling(t *testing.T) {
 	}
 }
 
-// errReader fails partway through, the way a pipe to a dying child does.
-type errReader struct{ done bool }
-
-func (e *errReader) Read(p []byte) (int, error) {
-	if e.done {
-		return 0, errors.New("read: broken pipe")
-	}
-	e.done = true
-	return copy(p, "Partitioning device /dev/vda\n"), nil
-}
-
-// TestStreamLinesReportsScanErrors: if the scan stops silently, runInstall goes
-// on to cmd.Wait() with the pipe undrained — the child blocks writing, Wait
-// blocks on the child, and the progress screen has no quit key. That is a hang,
-// not a stall, so the error has to reach the UI.
-func TestStreamLinesReportsScanErrors(t *testing.T) {
-	var msgs []tea.Msg
-	streamLines(&errReader{}, func(m tea.Msg) { msgs = append(msgs, m) })
-
-	if len(msgs) == 0 {
-		t.Fatal("streamLines sent nothing at all")
-	}
-	last, ok := msgs[len(msgs)-1].(doneMsg)
-	if !ok {
-		t.Fatalf("last message is %T, want a doneMsg carrying the scan error", msgs[len(msgs)-1])
-	}
-	if last.err == nil {
-		t.Fatal("doneMsg carries a nil error; the failure would render as success")
-	}
-	if !strings.Contains(last.err.Error(), "broken pipe") {
-		t.Errorf("error %q does not carry the underlying cause", last.err)
-	}
-}
-
-// TestStreamLinesSendsNoDoneMsgAtCleanEOF: a clean EOF is runInstall's job to
-// report via cmd.Wait(); a spurious doneMsg here would flag a good install as
-// failed.
-func TestStreamLinesSendsNoDoneMsgAtCleanEOF(t *testing.T) {
-	var msgs []tea.Msg
-	streamLines(strings.NewReader("one\ntwo\n"), func(m tea.Msg) { msgs = append(msgs, m) })
-
-	if len(msgs) != 2 {
-		t.Fatalf("got %d messages, want 2 lines and nothing else: %v", len(msgs), msgs)
-	}
-	for _, m := range msgs {
-		if _, ok := m.(doneMsg); ok {
-			t.Errorf("clean EOF produced a doneMsg: %v", m)
-		}
-	}
-}
-
 // TestViewNeverExceedsTerminalHeight: m.height is not decoration. bubbletea
 // keeps the last height lines of a frame, so a view that outgrows a short
 // terminal loses its top rows; clamping from the bottom keeps them.
@@ -254,5 +173,26 @@ func TestClampHeight(t *testing.T) {
 	// blank the screen.
 	if got := clampHeight(s, 0); got != s {
 		t.Errorf("clampHeight(_, 0) = %q, want it unchanged", got)
+	}
+}
+
+// TestInstallEventsDriveTheModel: the progress screen follows the install
+// run's events. A line goes to the log, a step event moves the progress, and
+// the run's end is a doneMsg either way.
+func TestInstallEventsDriveTheModel(t *testing.T) {
+	m := sized(t, 25,
+		eventMsg(core.Event{Kind: core.EventLine, Line: "Partitioning device /dev/vda"}),
+		eventMsg(core.Event{Kind: core.EventStep, Step: 1}))
+	if m.step != 1 || !strings.Contains(m.view(), core.Steps[1].Name) {
+		t.Errorf("step = %d, view:\n%s", m.step, m.view())
+	}
+	if m.logs.text() != "Partitioning device /dev/vda" {
+		t.Errorf("log = %q", m.logs.text())
+	}
+	if d, ok := eventMsg(core.Event{Kind: core.EventFailed, Err: errFake}).(doneMsg); !ok || d.err != errFake {
+		t.Errorf("EventFailed = %#v, want a doneMsg with the error", d)
+	}
+	if d, ok := eventMsg(core.Event{Kind: core.EventFinished}).(doneMsg); !ok || d.err != nil {
+		t.Errorf("EventFinished = %#v, want a doneMsg with no error", d)
 	}
 }

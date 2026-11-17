@@ -5024,7 +5024,7 @@ COPY --from=server-config / /
 # The splash is kept for one job: in the initramfs it asks for the disk
 # passphrase (51isotope-askpass), and falls back to text without a framebuffer.
 COPY --from=isotope-splash /build/splash/isotope-splash /usr/bin/kairos-splash
-# The installer puts its user in the desktop groups (install-ui/config.go);
+# The installer puts its user in the desktop groups (install-ui/core/config.go);
 # a group that does not exist would stop the user from being created.
 # NetworkManager starts at boot; nmcli changes need root (sudo), see
 # rootfs-server/etc/NetworkManager/NetworkManager.conf. polkit answers the

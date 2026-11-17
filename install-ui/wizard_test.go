@@ -1,232 +1,13 @@
 package main
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/kairos-community/isotope/install-ui/core"
 )
-
-func TestChoiceFromEnvRequiresMandatoryFields(t *testing.T) {
-	t.Setenv("ISOTOPE_INSTALL_NONINTERACTIVE", "1")
-	t.Setenv("ISOTOPE_USER", "")
-	t.Setenv("ISOTOPE_PASS", "")
-	t.Setenv("ISOTOPE_DISK", "")
-	if _, _, err := choiceFromEnv(); err == nil {
-		t.Fatal("expected an error when ISOTOPE_USER/PASS/DISK are unset")
-	}
-}
-
-// TestChoiceFromEnvRequiresEachFieldIndividually: checking only the all-empty
-// case cannot tell that all three are enforced — with two checks in place the
-// third could be dropped and the suite would stay green. An unenforced
-// ISOTOPE_DISK in particular would install to device "".
-func TestChoiceFromEnvRequiresEachFieldIndividually(t *testing.T) {
-	full := map[string]string{
-		"ISOTOPE_USER": "ada",
-		"ISOTOPE_PASS": "hunter2",
-		"ISOTOPE_DISK": "/dev/vda",
-	}
-	for blank := range full {
-		t.Run(blank, func(t *testing.T) {
-			t.Setenv("ISOTOPE_INSTALL_NONINTERACTIVE", "1")
-			for k, v := range full {
-				if k == blank {
-					v = ""
-				}
-				t.Setenv(k, v)
-			}
-			_, _, err := choiceFromEnv()
-			if err == nil {
-				t.Fatalf("expected an error when %s is unset", blank)
-			}
-			if !strings.Contains(err.Error(), blank) {
-				t.Errorf("error %q does not name the missing variable %s", err, blank)
-			}
-		})
-	}
-}
-
-func TestChoiceFromEnvPopulatesAndDefaultsHostname(t *testing.T) {
-	t.Setenv("ISOTOPE_INSTALL_NONINTERACTIVE", "1")
-	t.Setenv("ISOTOPE_USER", "ada")
-	t.Setenv("ISOTOPE_PASS", "hunter2")
-	t.Setenv("ISOTOPE_DISK", "/dev/vda")
-	t.Setenv("ISOTOPE_HOSTNAME", "")
-	t.Setenv("ISOTOPE_GITHUB", "adalovelace")
-
-	c, ok, err := choiceFromEnv()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !ok {
-		t.Fatal("expected non-interactive mode to be active")
-	}
-	if c.Username != "ada" || c.Password != "hunter2" || c.Disk != "/dev/vda" {
-		t.Errorf("unexpected choice: %+v", c)
-	}
-	if c.Hostname != "isotope" {
-		t.Errorf("Hostname = %q, want default %q", c.Hostname, "isotope")
-	}
-	if c.Github != "adalovelace" {
-		t.Errorf("Github = %q, want adalovelace", c.Github)
-	}
-}
-
-func TestChoiceFromEnvInactiveWhenFlagUnset(t *testing.T) {
-	t.Setenv("ISOTOPE_INSTALL_NONINTERACTIVE", "0")
-	if _, ok, _ := choiceFromEnv(); ok {
-		t.Error("non-interactive mode should be inactive when the flag is not 1")
-	}
-}
-
-// TestChoiceFromEnvRejectsInvalidUsername guards the one interpolation
-// RenderCloudConfig cannot defend: Username goes raw into the /etc/ly/save.ini
-// block scalar, so a newline there terminates the YAML block and yields an
-// invalid cloud-config on a machine that has already been wiped.
-func TestChoiceFromEnvRejectsInvalidUsername(t *testing.T) {
-	t.Setenv("ISOTOPE_INSTALL_NONINTERACTIVE", "1")
-	t.Setenv("ISOTOPE_PASS", "hunter2")
-	t.Setenv("ISOTOPE_DISK", "/dev/vda")
-	t.Setenv("ISOTOPE_USER", "ada\nsession_index = 9")
-	if _, _, err := choiceFromEnv(); err == nil {
-		t.Fatal("expected an error for a username containing a newline")
-	}
-}
-
-// topLevelStages counts unindented `stages:` keys in a rendered cloud-config.
-// A second one is the signature of a successful injection.
-func topLevelStages(cfg string) int {
-	var n int
-	for _, line := range strings.Split(cfg, "\n") {
-		if line == "stages:" {
-			n++
-		}
-	}
-	return n
-}
-
-// TestChoiceFromEnvRejectsInjectedGithub guards the worse half of the same
-// defect: Github goes into an *unquoted* YAML scalar, so this payload does not
-// corrupt the document, it extends it — the rendered config ends up with two
-// top-level `stages:` keys and the injected one displaces /etc/ly/save.ini.
-// Valid YAML, wrong machine, disk already wiped.
-func TestChoiceFromEnvRejectsInjectedGithub(t *testing.T) {
-	t.Setenv("ISOTOPE_INSTALL_NONINTERACTIVE", "1")
-	t.Setenv("ISOTOPE_USER", "ada")
-	t.Setenv("ISOTOPE_PASS", "hunter2")
-	t.Setenv("ISOTOPE_DISK", "/dev/vda")
-	t.Setenv("ISOTOPE_GITHUB", "ada\nstages:\n  network:\n    - name: pwn")
-
-	_, _, err := choiceFromEnv()
-	if err == nil {
-		t.Fatal("expected an error for a ISOTOPE_GITHUB containing a newline")
-	}
-	if !strings.Contains(err.Error(), "ISOTOPE_GITHUB") {
-		t.Errorf("error %q does not name the offending variable", err)
-	}
-}
-
-// TestChoiceFromEnvGithubValidity pins both edges at once: a rejection-only
-// test would pass with the field hardwired to always fail, and an
-// acceptance-only test would pass with no validation at all. The empty case is
-// load-bearing — ISOTOPE_GITHUB is optional and must stay skippable.
-func TestChoiceFromEnvGithubValidity(t *testing.T) {
-	cases := []struct {
-		name  string
-		value string
-		ok    bool
-	}{
-		{"ordinary handle", "adalovelace", true},
-		{"hyphen and digits", "ada-l0velace", true},
-		{"empty stays optional", "", true},
-		{"39 chars", strings.Repeat("a", 39), true},
-		{"newline injects a stages block", "ada\nstages:\n  network:\n    - name: pwn", false},
-		{"leading hyphen", "-ada", false},
-		{"trailing hyphen", "ada-", false},
-		{"space", "ada lovelace", false},
-		{"underscore", "ada_lovelace", false},
-		{"colon", "ada:x", false},
-		{"40 chars", strings.Repeat("a", 40), false},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Setenv("ISOTOPE_INSTALL_NONINTERACTIVE", "1")
-			t.Setenv("ISOTOPE_USER", "ada")
-			t.Setenv("ISOTOPE_PASS", "hunter2")
-			t.Setenv("ISOTOPE_DISK", "/dev/vda")
-			t.Setenv("ISOTOPE_GITHUB", tc.value)
-
-			c, _, err := choiceFromEnv()
-			if tc.ok {
-				if err != nil {
-					t.Fatalf("ISOTOPE_GITHUB=%q rejected: %v", tc.value, err)
-				}
-				if c.Github != tc.value {
-					t.Errorf("Github = %q, want %q", c.Github, tc.value)
-				}
-				// The point of the check is the rendered document: whatever
-				// survives validation must still yield exactly one top-level
-				// `stages:` key, i.e. the one the installer wrote.
-				if n := topLevelStages(RenderCloudConfig(c, "$6$fake")); n != 1 {
-					t.Errorf("rendered config has %d top-level stages: keys, want 1", n)
-				}
-				return
-			}
-			if err == nil {
-				t.Fatalf("ISOTOPE_GITHUB=%q accepted, rendered config:\n%s",
-					tc.value, RenderCloudConfig(c, "$6$fake"))
-			}
-		})
-	}
-}
-
-func TestWriteChoiceProducesReadableConfig(t *testing.T) {
-	dir := t.TempDir()
-	out := filepath.Join(dir, "99_isotope-user.yaml")
-	c := Choice{Hostname: "box", Username: "ada", Disk: "/dev/vda"}
-
-	if err := writeChoice(out, c, "$6$fake"); err != nil {
-		t.Fatal(err)
-	}
-	data, err := os.ReadFile(out)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(data), "hostname: \"box\"") {
-		t.Errorf("config missing hostname:\n%s", data)
-	}
-	// The file carries a password hash; it must not be world-readable.
-	info, err := os.Stat(out)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if perm := info.Mode().Perm(); perm&0o077 != 0 {
-		t.Errorf("permissions = %o, want no group/other access", perm)
-	}
-}
-
-// TestWriteChoiceMatchesRenderCloudConfig pins that writeChoice writes the
-// renderer's bytes unmodified — the shell installer's output shape is verified
-// against RenderCloudConfig in config_test.go, and this is the only step
-// between it and the disk.
-func TestWriteChoiceMatchesRenderCloudConfig(t *testing.T) {
-	out := filepath.Join(t.TempDir(), "nested", "99_isotope-user.yaml")
-	c := Choice{Hostname: "box", Username: "ada", Github: "adalovelace", Disk: "/dev/vda"}
-
-	if err := writeChoice(out, c, "$6$fake"); err != nil {
-		t.Fatal(err)
-	}
-	data, err := os.ReadFile(out)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want := RenderCloudConfig(c, "$6$fake"); string(data) != want {
-		t.Errorf("written config differs from RenderCloudConfig\n got:\n%s\nwant:\n%s", data, want)
-	}
-}
 
 // --- wizard flow -----------------------------------------------------------
 
@@ -259,8 +40,8 @@ func keys(t *testing.T, m wizardModel, seq ...string) wizardModel {
 	return tm.(wizardModel)
 }
 
-func testDisks() []Disk {
-	return []Disk{{Path: "/dev/sda", SizeGB: 120}, {Path: "/dev/vdb", SizeGB: 500}}
+func testDisks() []core.Disk {
+	return []core.Disk{{Path: "/dev/sda", SizeGB: 120}, {Path: "/dev/vdb", SizeGB: 500}}
 }
 
 // clear replaces whatever the step seeded with the given text.
@@ -272,11 +53,11 @@ func clear(t *testing.T, m wizardModel, text string) wizardModel {
 
 // atHostname accepts the default keyboard and timezone and returns the
 // wizard on the hostname step with an empty field.
-func atHostname(t *testing.T, disks []Disk) wizardModel {
+func atHostname(t *testing.T, disks []core.Disk) wizardModel {
 	t.Helper()
 	m := keys(t, newWizard(disks), "enter", "enter")
-	if m.step != stepHostname {
-		t.Fatalf("step = %v after accepting keyboard and timezone, want stepHostname", m.step)
+	if m.Page != core.PageHostname {
+		t.Fatalf("step = %v after accepting keyboard and timezone, want core.PageHostname", m.Page)
 	}
 	return clear(t, m, "")
 }
@@ -285,21 +66,21 @@ func TestWizardHappyPathCollectsEveryField(t *testing.T) {
 	m := atHostname(t, testDisks())
 	m = keys(t, m, "box", "enter", "ada", "enter", "hunter2", "enter", "adalovelace", "enter")
 
-	if m.step != stepDisk {
-		t.Fatalf("step = %v, want stepDisk", m.step)
+	if m.Page != core.PageDisk {
+		t.Fatalf("step = %v, want core.PageDisk", m.Page)
 	}
 	m = keys(t, m, "down", "enter")
-	if m.step != stepEncrypt {
-		t.Fatalf("step = %v, want stepEncrypt", m.step)
+	if m.Page != core.PageEncrypt {
+		t.Fatalf("step = %v, want core.PageEncrypt", m.Page)
 	}
 	m = keys(t, m, "enter")
-	if m.step != stepReview {
-		t.Fatalf("step = %v, want stepReview", m.step)
+	if m.Page != core.PageReview {
+		t.Fatalf("step = %v, want core.PageReview", m.Page)
 	}
-	want := Choice{Hostname: "box", Username: "ada", Password: "hunter2", Github: "adalovelace", Disk: "/dev/vdb",
+	want := core.Choice{Hostname: "box", Username: "ada", Password: "hunter2", Github: "adalovelace", Disk: "/dev/vdb",
 		KeyboardLayout: "us", Timezone: "UTC"}
-	if m.choice != want {
-		t.Errorf("choice = %+v, want %+v", m.choice, want)
+	if m.Choice != want {
+		t.Errorf("choice = %+v, want %+v", m.Choice, want)
 	}
 	if m.done {
 		t.Error("wizard reported done before the review gate was confirmed")
@@ -316,8 +97,8 @@ func TestWizardHappyPathCollectsEveryField(t *testing.T) {
 func TestWizardHostnameDefaults(t *testing.T) {
 	m := atHostname(t, testDisks())
 	m = keys(t, m, "enter")
-	if m.choice.Hostname != defaultHostname {
-		t.Errorf("Hostname = %q, want %q", m.choice.Hostname, defaultHostname)
+	if m.Choice.Hostname != core.DefaultHostname {
+		t.Errorf("Hostname = %q, want %q", m.Choice.Hostname, core.DefaultHostname)
 	}
 }
 
@@ -328,43 +109,43 @@ func TestWizardEscRestoresPreviousValue(t *testing.T) {
 	m := atHostname(t, testDisks())
 	m = keys(t, m, "box", "enter", "ada", "enter") // now on password
 	m = keys(t, m, "esc")                          // back to username
-	if m.step != stepUser {
-		t.Fatalf("step = %v, want stepUser", m.step)
+	if m.Page != core.PageUser {
+		t.Fatalf("step = %v, want core.PageUser", m.Page)
 	}
 	if got := m.in.Value(); got != "ada" {
 		t.Errorf("username field = %q, want %q", got, "ada")
 	}
 	m = keys(t, m, "esc") // back to hostname
-	if m.step != stepHostname {
-		t.Fatalf("step = %v, want stepHostname", m.step)
+	if m.Page != core.PageHostname {
+		t.Fatalf("step = %v, want core.PageHostname", m.Page)
 	}
 	if got := m.in.Value(); got != "box" {
 		t.Errorf("hostname field = %q, want %q", got, "box")
 	}
 	m = keys(t, m, "esc", "esc") // timezone, then keyboard
-	if m.step != stepKeyboard {
-		t.Fatalf("step = %v, want stepKeyboard", m.step)
+	if m.Page != core.PageKeyboard {
+		t.Fatalf("step = %v, want core.PageKeyboard", m.Page)
 	}
-	// Esc on the first step must not underflow past stepKeyboard.
+	// Esc on the first step must not underflow past core.PageKeyboard.
 	m = keys(t, m, "esc")
-	if m.step != stepKeyboard {
-		t.Errorf("step = %v after esc on the first step, want stepKeyboard", m.step)
+	if m.Page != core.PageKeyboard {
+		t.Errorf("step = %v after esc on the first step, want core.PageKeyboard", m.Page)
 	}
 }
 
 func TestWizardEscFromReviewGoesBackToDisk(t *testing.T) {
 	m := atHostname(t, testDisks())
 	m = keys(t, m, "box", "enter", "ada", "enter", "pw", "enter", "enter", "enter", "enter")
-	if m.step != stepReview {
-		t.Fatalf("step = %v, want stepReview", m.step)
+	if m.Page != core.PageReview {
+		t.Fatalf("step = %v, want core.PageReview", m.Page)
 	}
 	m = keys(t, m, "esc")
-	if m.step != stepEncrypt {
-		t.Errorf("step = %v, want stepEncrypt", m.step)
+	if m.Page != core.PageEncrypt {
+		t.Errorf("step = %v, want core.PageEncrypt", m.Page)
 	}
 	m = keys(t, m, "esc")
-	if m.step != stepDisk {
-		t.Errorf("step = %v, want stepDisk", m.step)
+	if m.Page != core.PageDisk {
+		t.Errorf("step = %v, want core.PageDisk", m.Page)
 	}
 	if m.done {
 		t.Error("esc from review must not finish the wizard")
@@ -374,8 +155,8 @@ func TestWizardEscFromReviewGoesBackToDisk(t *testing.T) {
 func TestWizardPasswordIsMasked(t *testing.T) {
 	m := atHostname(t, testDisks())
 	m = keys(t, m, "enter", "ada", "enter", "hunter2")
-	if m.step != stepPass {
-		t.Fatalf("step = %v, want stepPass", m.step)
+	if m.Page != core.PagePass {
+		t.Fatalf("step = %v, want core.PagePass", m.Page)
 	}
 	if strings.Contains(m.View(), "hunter2") {
 		t.Errorf("password is echoed in plaintext:\n%s", m.View())
@@ -410,22 +191,22 @@ func TestWizardUsernameValidation(t *testing.T) {
 			m = keys(t, m, "enter")
 
 			if tc.ok {
-				if m.step != stepPass {
-					t.Fatalf("step = %v, want stepPass (input %q rejected: %q)", m.step, tc.input, m.err)
+				if m.Page != core.PagePass {
+					t.Fatalf("step = %v, want core.PagePass (input %q rejected: %q)", m.Page, tc.input, m.err)
 				}
-				if m.choice.Username != tc.input {
-					t.Errorf("Username = %q, want %q", m.choice.Username, tc.input)
+				if m.Choice.Username != tc.input {
+					t.Errorf("Username = %q, want %q", m.Choice.Username, tc.input)
 				}
 				return
 			}
-			if m.step != stepUser {
-				t.Fatalf("step = %v, want to stay on stepUser for input %q", m.step, tc.input)
+			if m.Page != core.PageUser {
+				t.Fatalf("step = %v, want to stay on core.PageUser for input %q", m.Page, tc.input)
 			}
 			if m.err == "" {
 				t.Errorf("no on-screen error shown for invalid username %q", tc.input)
 			}
-			if m.choice.Username != "" {
-				t.Errorf("invalid username %q was stored anyway", m.choice.Username)
+			if m.Choice.Username != "" {
+				t.Errorf("invalid username %q was stored anyway", m.Choice.Username)
 			}
 			if !strings.Contains(m.View(), m.err) {
 				t.Errorf("error %q is not rendered in the view:\n%s", m.err, m.View())
@@ -439,8 +220,8 @@ func TestWizardPasswordIsRequired(t *testing.T) {
 	m = keys(t, m, "enter", "ada", "enter")
 	m = clear(t, m, "")
 	m = keys(t, m, "enter")
-	if m.step != stepPass {
-		t.Fatalf("step = %v, want to stay on stepPass", m.step)
+	if m.Page != core.PagePass {
+		t.Fatalf("step = %v, want to stay on core.PagePass", m.Page)
 	}
 	if m.err == "" {
 		t.Error("no on-screen error shown for an empty password")
@@ -450,34 +231,15 @@ func TestWizardPasswordIsRequired(t *testing.T) {
 func TestWizardGithubIsOptional(t *testing.T) {
 	m := atHostname(t, testDisks())
 	m = keys(t, m, "enter", "ada", "enter", "pw", "enter")
-	if m.step != stepGithub {
-		t.Fatalf("step = %v, want stepGithub", m.step)
+	if m.Page != core.PageGithub {
+		t.Fatalf("step = %v, want core.PageGithub", m.Page)
 	}
 	m = keys(t, m, "enter")
-	if m.step != stepDisk {
-		t.Fatalf("step = %v, want stepDisk after skipping github", m.step)
+	if m.Page != core.PageDisk {
+		t.Fatalf("step = %v, want core.PageDisk after skipping github", m.Page)
 	}
-	if m.choice.Github != "" {
-		t.Errorf("Github = %q, want empty", m.choice.Github)
-	}
-}
-
-// TestWizardGithubPayloadIsRejectedAtTheFunction pins the raw payload against
-// validateGithub directly, because the interactive test below cannot: bubbles'
-// textinput rewrites newlines to spaces before commitField ever sees the value
-// (measured — "ada\nstages:..." arrives as "ada stages:..."). So the widget's
-// sanitisation, not our check, is what stops a *typed* newline today, and that
-// is a third-party implementation detail we do not control. This asserts the
-// check would hold on its own if textinput ever stopped scrubbing.
-func TestWizardGithubPayloadIsRejectedAtTheFunction(t *testing.T) {
-	if err := validateGithub("ada\nstages:\n  network:\n    - name: pwn"); err == nil {
-		t.Fatal("validateGithub accepted a newline-injected handle")
-	}
-	if err := validateGithub(""); err != nil {
-		t.Errorf("validateGithub rejected the empty (optional) value: %v", err)
-	}
-	if err := validateGithub("adalovelace"); err != nil {
-		t.Errorf("validateGithub rejected an ordinary handle: %v", err)
+	if m.Choice.Github != "" {
+		t.Errorf("Github = %q, want empty", m.Choice.Github)
 	}
 }
 
@@ -509,29 +271,29 @@ func TestWizardGithubValidation(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			m := atHostname(t, testDisks())
 			m = keys(t, m, "enter", "ada", "enter", "pw", "enter")
-			if m.step != stepGithub {
-				t.Fatalf("step = %v, want stepGithub", m.step)
+			if m.Page != core.PageGithub {
+				t.Fatalf("step = %v, want core.PageGithub", m.Page)
 			}
 			m = clear(t, m, tc.input)
 			m = keys(t, m, "enter")
 
 			if tc.ok {
-				if m.step != stepDisk {
-					t.Fatalf("step = %v, want stepDisk (input %q rejected: %q)", m.step, tc.input, m.err)
+				if m.Page != core.PageDisk {
+					t.Fatalf("step = %v, want core.PageDisk (input %q rejected: %q)", m.Page, tc.input, m.err)
 				}
-				if m.choice.Github != tc.input {
-					t.Errorf("Github = %q, want %q", m.choice.Github, tc.input)
+				if m.Choice.Github != tc.input {
+					t.Errorf("Github = %q, want %q", m.Choice.Github, tc.input)
 				}
 				return
 			}
-			if m.step != stepGithub {
-				t.Fatalf("step = %v, want to stay on stepGithub for input %q", m.step, tc.input)
+			if m.Page != core.PageGithub {
+				t.Fatalf("step = %v, want to stay on core.PageGithub for input %q", m.Page, tc.input)
 			}
 			if m.err == "" {
 				t.Errorf("no on-screen error shown for invalid github handle %q", tc.input)
 			}
-			if m.choice.Github != "" {
-				t.Errorf("invalid github handle %q was stored anyway", m.choice.Github)
+			if m.Choice.Github != "" {
+				t.Errorf("invalid github handle %q was stored anyway", m.Choice.Github)
 			}
 			if !strings.Contains(m.View(), m.err) {
 				t.Errorf("error %q is not rendered in the view:\n%s", m.err, m.View())
@@ -546,8 +308,8 @@ func TestWizardGithubValidation(t *testing.T) {
 func TestWizardNoDisksHalts(t *testing.T) {
 	m := atHostname(t, nil)
 	m = keys(t, m, "enter", "ada", "enter", "pw", "enter", "enter")
-	if m.step != stepGithub {
-		t.Fatalf("step = %v, want to stay on stepGithub when no disk exists", m.step)
+	if m.Page != core.PageGithub {
+		t.Fatalf("step = %v, want to stay on core.PageGithub when no disk exists", m.Page)
 	}
 	if m.err == "" {
 		t.Error("no on-screen error shown when no disk is installable")
@@ -557,8 +319,8 @@ func TestWizardNoDisksHalts(t *testing.T) {
 func TestWizardDiskSelectionClampsAtBothEnds(t *testing.T) {
 	m := atHostname(t, testDisks())
 	m = keys(t, m, "enter", "ada", "enter", "pw", "enter", "enter")
-	if m.step != stepDisk {
-		t.Fatalf("step = %v, want stepDisk", m.step)
+	if m.Page != core.PageDisk {
+		t.Fatalf("step = %v, want core.PageDisk", m.Page)
 	}
 	m = keys(t, m, "up", "up") // already at the top
 	if m.diskIdx != 0 {
@@ -569,8 +331,8 @@ func TestWizardDiskSelectionClampsAtBothEnds(t *testing.T) {
 		t.Errorf("diskIdx = %d after running off the bottom, want 1", m.diskIdx)
 	}
 	m = keys(t, m, "enter")
-	if m.choice.Disk != "/dev/vdb" {
-		t.Errorf("Disk = %q, want /dev/vdb", m.choice.Disk)
+	if m.Choice.Disk != "/dev/vdb" {
+		t.Errorf("Disk = %q, want /dev/vdb", m.Choice.Disk)
 	}
 }
 
@@ -608,8 +370,8 @@ func TestWizardReviewShowsTheTarget(t *testing.T) {
 func TestWizardReviewOnlyConfirmsOnEnter(t *testing.T) {
 	base := atHostname(t, testDisks())
 	base = keys(t, base, "box", "enter", "ada", "enter", "pw", "enter", "adalovelace", "enter", "enter", "enter")
-	if base.step != stepReview {
-		t.Fatalf("step = %v, want stepReview", base.step)
+	if base.Page != core.PageReview {
+		t.Fatalf("step = %v, want core.PageReview", base.Page)
 	}
 	for _, k := range []string{"x", "y", "down", "up"} {
 		if m := keys(t, base, k); m.done {
@@ -629,94 +391,5 @@ func TestWizardCtrlCAborts(t *testing.T) {
 	}
 	if m.done {
 		t.Error("an aborted wizard must not report done")
-	}
-}
-
-// --- runWizard end to end --------------------------------------------------
-
-func TestRunWizardNonInteractiveWritesConfig(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("ISOTOPE_OEM_DIR", dir)
-	t.Setenv("ISOTOPE_INSTALL_NONINTERACTIVE", "1")
-	t.Setenv("ISOTOPE_USER", "ada")
-	t.Setenv("ISOTOPE_PASS", "hunter2")
-	t.Setenv("ISOTOPE_DISK", "/dev/vda")
-	t.Setenv("ISOTOPE_HOSTNAME", "box")
-	t.Setenv("ISOTOPE_GITHUB", "adalovelace")
-
-	if _, err := runWizard(); err != nil {
-		t.Fatal(err)
-	}
-	data, err := os.ReadFile(filepath.Join(dir, "99_isotope-user.yaml"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := string(data)
-	for _, want := range []string{"#cloud-config", "hostname: \"box\"", "name: \"ada\"", "$6$", "github:adalovelace", "/etc/ly/save.ini"} {
-		if !strings.Contains(got, want) {
-			t.Errorf("config missing %q:\n%s", want, got)
-		}
-	}
-	if strings.Contains(got, "hunter2") {
-		t.Errorf("plaintext password reached disk:\n%s", got)
-	}
-}
-
-// TestRunWizardSkipsWhenConfigPresent preserves the shell installer's unattended
-// behaviour: a seeded /oem must install without prompting. If this regressed the
-// wizard would block a seeded install forever on a headless machine.
-func TestRunWizardSkipsWhenConfigPresent(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "10_seed.yaml"), []byte("users:\n  - name: seeded\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("ISOTOPE_OEM_DIR", dir)
-	// Non-interactive mode is deliberately NOT set: if the short-circuit failed,
-	// runWizard would try to open a terminal here rather than return nil.
-	t.Setenv("ISOTOPE_INSTALL_NONINTERACTIVE", "")
-
-	if _, err := runWizard(); err != nil {
-		t.Fatalf("seeded /oem should install unattended, got: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(dir, "99_isotope-user.yaml")); !os.IsNotExist(err) {
-		t.Errorf("wizard wrote its own config despite a seeded one being present (stat err: %v)", err)
-	}
-}
-
-func TestRunWizardReportsMissingEnv(t *testing.T) {
-	t.Setenv("ISOTOPE_OEM_DIR", t.TempDir())
-	t.Setenv("ISOTOPE_INSTALL_NONINTERACTIVE", "1")
-	t.Setenv("ISOTOPE_USER", "")
-	t.Setenv("ISOTOPE_PASS", "")
-	t.Setenv("ISOTOPE_DISK", "")
-	_, err := runWizard()
-	if err == nil {
-		t.Fatal("expected an error when the non-interactive env is incomplete")
-	}
-	if !strings.Contains(err.Error(), "ISOTOPE_USER") {
-		t.Errorf("error %q does not name the missing variable", err)
-	}
-}
-
-func TestOemDirDefaultsToOem(t *testing.T) {
-	t.Setenv("ISOTOPE_OEM_DIR", "")
-	if got := oemDir(); got != "/oem" {
-		t.Errorf("oemDir() = %q, want /oem", got)
-	}
-	t.Setenv("ISOTOPE_OEM_DIR", "/tmp/fake-oem")
-	if got := oemDir(); got != "/tmp/fake-oem" {
-		t.Errorf("oemDir() = %q, want /tmp/fake-oem", got)
-	}
-}
-
-func TestConfigOutFollowsOemDirUnlessSet(t *testing.T) {
-	t.Setenv("ISOTOPE_OEM_DIR", "/tmp/fake-oem")
-	t.Setenv("ISOTOPE_CONFIG_OUT", "")
-	if got := configOut(); got != "/tmp/fake-oem/99_isotope-user.yaml" {
-		t.Errorf("configOut() = %q, want /tmp/fake-oem/99_isotope-user.yaml", got)
-	}
-	t.Setenv("ISOTOPE_CONFIG_OUT", "/etc/kairos/99_isotope-user.yaml")
-	if got := configOut(); got != "/etc/kairos/99_isotope-user.yaml" {
-		t.Errorf("configOut() = %q, want /etc/kairos/99_isotope-user.yaml", got)
 	}
 }

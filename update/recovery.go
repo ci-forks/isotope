@@ -21,7 +21,7 @@ import (
 //
 // A recovery key is a LUKS2 keyslot with a systemd-recovery token next to it,
 // the way systemd-cryptenroll --recovery-key makes one and the installer
-// does (install-ui/recoverykey.go). On Trusted Boot the containers are
+// does (install-ui/core/recoverykey.go). On Trusted Boot the containers are
 // COS_OEM_LUKS and COS_PERSISTENT_LUKS, each with a TPM keyslot
 // (systemd-tpm2 token); on the normal edition COS_PERSISTENT_LUKS has the
 // passphrase keyslot.
@@ -460,7 +460,7 @@ func addedSlot(before, after luksHeader) (string, error) {
 	return added[0], nil
 }
 
-// The recovery key format, as in install-ui/recoverykey.go and systemd: 32
+// The recovery key format, as in install-ui/core/recoverykey.go and systemd: 32
 // random bytes, each nibble one of 16 modhex letters, 8 groups of 8.
 const modhexAlphabet = "cbdefghijklnrtuv"
 

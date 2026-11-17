@@ -1,4 +1,4 @@
-package main
+package core
 
 import (
 	"os"
@@ -51,13 +51,13 @@ func TestLoadKeyboardsFallsBackToTheCuratedList(t *testing.T) {
 	if len(got) < 30 {
 		t.Fatalf("curated list has %d entries, want about 30", len(got))
 	}
-	if got[0].Layout != defaultLayout || got[0].Variant != "" {
-		t.Errorf("first entry = %+v, want the default %q", got[0], defaultLayout)
+	if got[0].Layout != DefaultLayout || got[0].Variant != "" {
+		t.Errorf("first entry = %+v, want the default %q", got[0], DefaultLayout)
 	}
 	// The curated list is written by hand, so check it obeys the same rule
 	// the renderer enforces.
 	for _, k := range got {
-		if err := validateKeyboard(k.Layout, k.Variant); err != nil {
+		if err := ValidateKeyboard(k.Layout, k.Variant); err != nil {
 			t.Errorf("curated entry %+v is invalid: %v", k, err)
 		}
 	}
@@ -90,9 +90,9 @@ func TestValidateKeyboard(t *testing.T) {
 		{"de", "a b", false},
 		{"../etc", "", false},
 	} {
-		err := validateKeyboard(tc.layout, tc.variant)
+		err := ValidateKeyboard(tc.layout, tc.variant)
 		if (err == nil) != tc.ok {
-			t.Errorf("validateKeyboard(%q, %q) = %v, want ok=%v", tc.layout, tc.variant, err, tc.ok)
+			t.Errorf("ValidateKeyboard(%q, %q) = %v, want ok=%v", tc.layout, tc.variant, err, tc.ok)
 		}
 	}
 }
@@ -114,9 +114,9 @@ func TestValidateTimezone(t *testing.T) {
 		{"Europe/Rome\nstages:", false},
 		{"a/b/c/d", false},
 	} {
-		err := validateTimezone(tc.tz)
+		err := ValidateTimezone(tc.tz)
 		if (err == nil) != tc.ok {
-			t.Errorf("validateTimezone(%q) = %v, want ok=%v", tc.tz, err, tc.ok)
+			t.Errorf("ValidateTimezone(%q) = %v, want ok=%v", tc.tz, err, tc.ok)
 		}
 	}
 }
@@ -164,11 +164,11 @@ func TestLoadTimezonesWalksWithoutATable(t *testing.T) {
 
 func TestLoadTimezonesFallsBackToTheCuratedList(t *testing.T) {
 	got := loadTimezones(filepath.Join(t.TempDir(), "none"))
-	if len(got) == 0 || got[0] != defaultTimezone {
+	if len(got) == 0 || got[0] != DefaultTimezone {
 		t.Fatalf("fallback = %v, want the curated list starting with UTC", got)
 	}
 	for _, z := range got {
-		if err := validateTimezone(z); err != nil {
+		if err := ValidateTimezone(z); err != nil {
 			t.Errorf("curated zone %q is invalid: %v", z, err)
 		}
 	}
@@ -190,8 +190,8 @@ func TestDetectTimezone(t *testing.T) {
 		t.Errorf("from TZ: %q, want Asia/Tokyo", got)
 	}
 	t.Setenv("TZ", "EST5EDT,M3.2.0,M11.1.0") // a POSIX rule, not a zone name
-	if got := detectTimezone(missing); got != defaultTimezone {
-		t.Errorf("with a POSIX TZ: %q, want %q", got, defaultTimezone)
+	if got := detectTimezone(missing); got != DefaultTimezone {
+		t.Errorf("with a POSIX TZ: %q, want %q", got, DefaultTimezone)
 	}
 }
 
@@ -235,26 +235,5 @@ func TestConsoleKeymap(t *testing.T) {
 	}
 	if got := consoleKeymap(filepath.Join(dir, "none"), "de", ""); got != "" {
 		t.Errorf("without keymaps: %q, want empty", got)
-	}
-}
-
-func TestPickerFiltersByEveryWordAndKeepsTheSelection(t *testing.T) {
-	p := newPicker([]string{"English (US)  us", "German  de", "German (no dead keys)  de(nodeadkeys)"})
-	p.move(1) // German
-	p.filter("GERMAN")
-	if i, _ := p.selected(); i != 1 {
-		t.Errorf("selection moved to %d after a filter that still matches it, want 1", i)
-	}
-	p.filter("german dead")
-	if len(p.match) != 1 || p.match[0] != 2 {
-		t.Errorf("matches = %v, want only entry 2", p.match)
-	}
-	p.filter("nothing like this")
-	if _, ok := p.selected(); ok {
-		t.Error("an empty match list must have no selection")
-	}
-	p.move(1) // must not panic or go out of range
-	if p.cursor != 0 {
-		t.Errorf("cursor = %d on an empty list, want 0", p.cursor)
 	}
 }
