@@ -22,6 +22,10 @@ type Release struct {
 	// GPU is the image line: gpuFull or gpuVM. Releases up to v0.0.7 wrote
 	// no GPU key; LoadRelease reads them as gpuFull (see Line).
 	GPU string
+	// TrustedBoot is set on a Trusted Boot (UKI) image, whose release file
+	// says TRUSTED_BOOT=true. Images built before the key was written have
+	// none and are not Trusted Boot.
+	TrustedBoot bool
 }
 
 // The two image lines a desktop flavor is released in. Each release pushes
@@ -32,13 +36,22 @@ type Release struct {
 const (
 	gpuFull = "full"
 	gpuVM   = "vm"
+	// lineUKI is the Trusted Boot line, <flavor>-uki-<tag>: a container
+	// that holds the signed UKI built from the full line's image. A Trusted
+	// Boot system can only upgrade to it (kairos-agent refuses a source
+	// without a UKI), and a GRUB system must never install it.
+	lineUKI = "uki"
 )
 
 // Line is the image line this system upgrades along. A release file without a
 // GPU key comes from v0.0.7 or earlier: those were GPU=vm images, but their
 // own isotope-update can only pull <flavor>-<tag>, which is the full line now,
-// and the full image runs in a VM too. So they are on the full line.
+// and the full image runs in a VM too. So they are on the full line. A
+// Trusted Boot system is on the uki line whatever its GPU key says.
 func (r Release) Line() string {
+	if r.TrustedBoot {
+		return lineUKI
+	}
 	if r.GPU == gpuVM {
 		return gpuVM
 	}
@@ -46,7 +59,11 @@ func (r Release) Line() string {
 }
 
 // lineTag is the image tag release.yml pushes for a flavor, line and release.
+// The uki line includes the server edition; the agent has no uki line.
 func lineTag(flavor, line, tag string) string {
+	if line == lineUKI && flavor != flavorAgent {
+		return flavor + "-" + lineUKI + "-" + tag
+	}
 	if line == gpuVM && flavor != flavorAgent && flavor != flavorServer {
 		return flavor + "-" + gpuVM + "-" + tag
 	}
@@ -87,6 +104,15 @@ func LoadRelease(path string) (Release, error) {
 	case "", gpuFull, gpuVM:
 	default:
 		return Release{}, fmt.Errorf("%s: GPU is %q, want %s or %s", path, r.GPU, gpuFull, gpuVM)
+	}
+	// A wrong value must not guess a line: on a Trusted Boot system a
+	// normal image would be offered, which kairos-agent cannot install.
+	switch tb := kv["TRUSTED_BOOT"]; tb {
+	case "", "false":
+	case "true":
+		r.TrustedBoot = true
+	default:
+		return Release{}, fmt.Errorf("%s: TRUSTED_BOOT is %q, want true or false", path, tb)
 	}
 	for name, v := range map[string]string{
 		"FLAVOR": r.Flavor, "VERSION": r.Version,

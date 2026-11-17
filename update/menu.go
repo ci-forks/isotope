@@ -71,7 +71,7 @@ func shorten(s string, n int) string {
 // BuildMenu is the tray menu for a status. It is pure: the tray rebuilds it on
 // every state change, and every rule about what may be clicked when lives
 // here. releases are the published tags; flavor is the running desktop and
-// line its image line (gpuFull or gpuVM).
+// line its image line (gpuFull, gpuVM or lineUKI).
 func BuildMenu(st Status, releases []Latest, flavor, line string) []MenuItem {
 	menu := []MenuItem{{ID: "status", Label: statusLine(st)}}
 	if st.State == StateUnmanaged {
@@ -106,8 +106,10 @@ func BuildMenu(st Status, releases []Latest, flavor, line string) []MenuItem {
 	// The server edition has no tray, but its menu must not offer a desktop
 	// or another line either: it upgrades only to server images.
 	if flavor == flavorServer {
-		return finishMenu(menu, st, can)
+		return finishMenu(menu, st, can, line)
 	}
+	// On Trusted Boot (the uki line) "Switch desktop" stays: `switch`
+	// installs the other desktop's signed <flavor>-uki-<tag> image.
 	var sw []MenuItem
 	for _, f := range switchable {
 		if f == flavor {
@@ -117,19 +119,24 @@ func BuildMenu(st Status, releases []Latest, flavor, line string) []MenuItem {
 	}
 	menu = append(menu, MenuItem{ID: "switch", Label: "Switch desktop", Enabled: can, Children: sw})
 	// The other image line, the way the switch above offers the other
-	// desktops: a terminal shows what changes and asks.
-	if line == gpuVM {
+	// desktops: a terminal shows what changes and asks. Trusted Boot has
+	// one line, the signed UKI, so nothing to switch to.
+	switch line {
+	case lineUKI:
+	case gpuVM:
 		menu = append(menu, MenuItem{ID: "gpu/" + gpuFull, Label: "Switch to the hardware image", Enabled: can})
-	} else {
+	default:
 		menu = append(menu, MenuItem{ID: "gpu/" + gpuVM, Label: "Switch to the virtual machine image", Enabled: can})
 	}
 
-	return finishMenu(menu, st, can)
+	return finishMenu(menu, st, can, line)
 }
 
-// finishMenu adds the entries every flavor's menu ends with.
-func finishMenu(menu []MenuItem, st Status, can bool) []MenuItem {
-	if st.Advanced {
+// finishMenu adds the entries every flavor's menu ends with. A Trusted Boot
+// system (line uki) installs only signed UKIs, so it gets no "Install an
+// image…" even in advanced mode.
+func finishMenu(menu []MenuItem, st Status, can bool, line string) []MenuItem {
+	if st.Advanced && line != lineUKI {
 		menu = append(menu, MenuItem{ID: "advanced", Label: "Install an image…", Enabled: can})
 	}
 	// Cancel only before kairos-agent starts writing: an interrupted write can
