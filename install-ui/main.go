@@ -52,6 +52,22 @@ func main() {
 
 	// --progress-only (the agent appliance's installer) never runs the
 	// wizard, so it never offers encryption.
+	// The desktop ISOs ask in the graphical installer, which also runs the
+	// install. The unattended paths keep the text progress screen.
+	if !progressOnly && guiWanted() {
+		if auto, err := unattended(); err == nil && !auto {
+			fallback, note, err := runGUI()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "isotope-install-ui: %v\n", err)
+				os.Exit(1)
+			}
+			if !fallback {
+				return
+			}
+			fmt.Fprintln(os.Stderr, note)
+		}
+	}
+
 	var choice *core.Choice
 	if !progressOnly {
 		c, err := runWizard()

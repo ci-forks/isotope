@@ -67,6 +67,11 @@ check "console palette on the default entry" \
 # hangs or shows nothing.
 check "no nomodeset on the default entry" \
     "test -f '$CFG' && ! entry 'isotope' | grep -q nomodeset"
+# The desktop ISOs start the graphical installer; this entry keeps the text
+# one (isotope-install-ui reads isotope.installer=text).
+check "text installer entry"            "entry 'isotope (text installer)' | grep -q ' install-mode-interactive isotope.installer=text '"
+check "only the text entry asks for text" \
+    "test -f '$CFG' && [ \"\$(grep -c '^[^#]*isotope.installer=text' '$CFG')\" -eq 1 ]"
 check "safe graphics entry installs with nomodeset" \
     "entry 'isotope (safe graphics)' | grep -q 'vga=795 nomodeset install-mode-interactive '"
 check "debug entry left verbose" \
