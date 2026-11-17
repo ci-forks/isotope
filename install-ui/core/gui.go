@@ -15,6 +15,11 @@ import (
 // it starts, so a new layout needs a new cage.
 const GUIRelaunchExit = 75
 
+// GUIShellExit is the graphical installer's exit status for "give me the
+// rescue shell": its "Open a terminal" on an image without foot. The text
+// installer's rescue shell, /bin/sh on tty1, takes over.
+const GUIShellExit = 76
+
 // RunDir is the installer's directory in /run: the passphrase hand-off, the
 // graphical installer's state and its markers. ISOTOPE_INSTALL_RUN_DIR moves
 // the markers for tests.

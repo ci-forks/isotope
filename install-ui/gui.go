@@ -72,6 +72,10 @@ func exists(p string) bool {
 // over one the graphical installer left running.
 var errInstallRunning = errors.New("the graphical installer stopped while the install was running; restart the computer and install again")
 
+// errRescueShell is the GUI's "Open a terminal" on an image without a
+// terminal for cage: the text installer's rescue shell takes tty1.
+var errRescueShell = errors.New("rescue shell")
+
 // runGUI runs `cage -s -- isotope-install-gui` until the GUI is done. It
 // starts cage again, with the saved layout as its keymap, each time the GUI
 // asks for that (core.GUIRelaunchExit). It reports fallback when the text
@@ -102,6 +106,9 @@ func runGUI() (fallback bool, note string, err error) {
 		}
 		if code == core.GUIRelaunchExit && exists(core.GUIStatePath()) && i < maxRelaunches {
 			continue
+		}
+		if code == core.GUIShellExit && exists(core.GUIStartedPath()) {
+			return false, "", errRescueShell
 		}
 		if !exists(core.GUIStartedPath()) {
 			// No DRM device, no seat, no GL: nothing was asked yet.

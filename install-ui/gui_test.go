@@ -130,3 +130,11 @@ func TestGUIStateHasNoSecrets(t *testing.T) {
 		t.Fatalf("an invalid layout survived: %q", s.Layout)
 	}
 }
+
+func TestRunGUIRescueShell(t *testing.T) {
+	stubGUI(t, `touch "$ISOTOPE_INSTALL_RUN_DIR/gui-started"; exit 76`, "")
+	fallback, _, err := runGUI()
+	if err != errRescueShell || fallback {
+		t.Fatalf("fallback %v, err %v", fallback, err)
+	}
+}

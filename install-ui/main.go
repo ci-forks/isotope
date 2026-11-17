@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"syscall"
@@ -57,6 +58,11 @@ func main() {
 	if !progressOnly && guiWanted() {
 		if auto, err := unattended(); err == nil && !auto {
 			fallback, note, err := runGUI()
+			if errors.Is(err, errRescueShell) {
+				// As the text installer's failure screen does: the shell
+				// owns tty1 outright.
+				err = syscall.Exec("/bin/sh", []string{"sh"}, os.Environ())
+			}
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "isotope-install-ui: %v\n", err)
 				os.Exit(1)
