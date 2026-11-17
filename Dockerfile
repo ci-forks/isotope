@@ -909,6 +909,15 @@ RUN meson setup buildDir ${COMMON_MESON_FLAGS} \
 RUN DESTDIR=/libseat ninja -C buildDir install
 
 
+# The wlroots source, on its own so cage (the graphical installer's
+# compositor) can build it as a subproject without the sway stack.
+FROM toolchain AS wlroots-src
+# renovate: datasource=gitlab-tags depName=wlroots/wlroots registryUrl=https://gitlab.freedesktop.org extractVersion=^(?<version>\d+(\.\d+)*)$
+ARG WLROOTS_VERSION=0.18.2
+WORKDIR /build
+RUN curl --retry 5 --retry-delay 3 --retry-all-errors -L https://gitlab.freedesktop.org/wlroots/wlroots/-/archive/${WLROOTS_VERSION}/wlroots-${WLROOTS_VERSION}.tar -o wlroots.tar && tar -xf wlroots.tar && rm wlroots.tar && mv wlroots-* wlroots-src
+
+
 FROM toolchain AS wlroots
 COPY --from=libucontext /libucontext /
 RUN mkdir -p /wlroots
@@ -922,10 +931,7 @@ COPY --from=libevdev /libevdev /
 COPY --from=mesa /mesa /
 COPY --from=hwdata /hwdata /
 COPY --from=libdisplay-info /libdisplay-info /
-# renovate: datasource=gitlab-tags depName=wlroots/wlroots registryUrl=https://gitlab.freedesktop.org extractVersion=^(?<version>\d+(\.\d+)*)$
-ARG WLROOTS_VERSION=0.18.2
-WORKDIR /build
-RUN curl --retry 5 --retry-delay 3 --retry-all-errors -L https://gitlab.freedesktop.org/wlroots/wlroots/-/archive/${WLROOTS_VERSION}/wlroots-${WLROOTS_VERSION}.tar -o wlroots.tar && tar -xf wlroots.tar && rm wlroots.tar && mv wlroots-* wlroots-src
+COPY --from=wlroots-src /build/wlroots-src /build/wlroots-src
 WORKDIR /build/wlroots-src
 RUN pip3 install meson ninja
 RUN meson setup buildDir ${COMMON_MESON_FLAGS} -Dexamples=false -Dwerror=false
@@ -2498,6 +2504,9 @@ COPY --from=xcbproto /xcbproto /
 COPY --from=libxau /libxau /
 COPY --from=libxcb /libxcb /
 COPY --from=x11-libs /x11-libs /
+# The Wayland platform too: the graphical installer (cage and
+# isotope-install-gui) is a Wayland client on every variant, i3 included.
+COPY --from=wayland /wayland /
 # renovate: datasource=gitlab-tags depName=mesa/mesa registryUrl=https://gitlab.freedesktop.org extractVersion=^mesa-(?<version>\d+(\.\d+)*)$
 ARG MESA_VERSION=25.3.0
 ARG GPU=vm
@@ -2512,7 +2521,7 @@ RUN if [ "$GPU" = "full" ]; then \
     else \
       DRV="llvmpipe,virgl,softpipe,svga"; \
     fi; \
-    meson setup buildDir ${COMMON_MESON_FLAGS} -Dplatforms=x11 \
+    meson setup buildDir ${COMMON_MESON_FLAGS} -Dplatforms=x11,wayland \
       -Dgallium-drivers="$DRV" -Dglx=dri -Dopengl=true -Dgles1=enabled -Dgles2=enabled \
       -Degl=enabled -Dvulkan-drivers= -Dllvm=enabled -Dcpp_rtti=false -Dbuild-tests=false
 RUN DESTDIR=/mesa-x11 ninja -C buildDir install
@@ -4397,6 +4406,10 @@ COPY --from=polkit /polkit /
 # XLibre/i3 root. This mirrors the shared networking/audio/container-facing
 # runtime from sway-rootfs but swaps every display-specific artifact.
 FROM scratch AS i3-rootfs
+# The Wayland client and server libraries and libdisplay-info are for the
+# graphical installer (cage); the i3 session itself does not use them.
+COPY --from=wayland /wayland /
+COPY --from=libdisplay-info /libdisplay-info /
 COPY --from=libdrm /libdrm /
 COPY --from=libucontext /libucontext /
 COPY --from=mesa-x11 /mesa-x11 /
@@ -4750,6 +4763,84 @@ RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/isotope
 
 
 # ---------------------------------------------------------------------------
+# The graphical installer of the desktop ISOs: isotope-install-gui (install-gui/,
+# Gio over install-ui/core) inside cage, a kiosk Wayland compositor.
+# isotope-install-ui starts it and keeps the text installer as the fallback;
+# see docs/superpowers/specs/2026-11-17-graphical-installer-design.md. Only the
+# desktop images get it (desktop-default); the server keeps the text installer.
+#
+# gl is the variant's Mesa: the Wayland one on sway, cosmic and niri, the X11
+# one on i3, which mesa-x11 builds with the Wayland platform too for this.
+# Both are built against the same libraries, with the same sonames, so the
+# build here only needs headers and link-time libraries from one of them.
+# ---------------------------------------------------------------------------
+FROM scratch AS gl-sway
+COPY --from=mesa /mesa /
+FROM scratch AS gl-cosmic
+COPY --from=mesa /mesa /
+FROM scratch AS gl-niri
+COPY --from=mesa /mesa /
+FROM scratch AS gl-i3
+COPY --from=mesa-x11 /mesa-x11 /
+FROM scratch AS gl-server
+FROM gl-${DESKTOP} AS gl
+
+# cage, with wlroots linked in from source (a meson subproject), so it needs no
+# libwlroots on cosmic, niri and i3, whose desktops do not use wlroots. cage's
+# releases follow wlroots series (0.2.0 is the wlroots 0.18 one); the
+# "sway and wlroots" group in renovate.json moves them together.
+FROM toolchain AS cage
+COPY --from=libucontext /libucontext /
+COPY --from=libseat /libseat /
+COPY --from=wayland /wayland /
+COPY --from=libdrm /libdrm /
+COPY --from=libxkb /libxkb /
+COPY --from=pixman /pixman /
+COPY --from=libinput /libinput /
+COPY --from=libevdev /libevdev /
+COPY --from=gl / /
+COPY --from=hwdata /hwdata /
+COPY --from=libdisplay-info /libdisplay-info /
+# renovate: datasource=github-tags depName=cage-kiosk/cage extractVersion=^v(?<version>\d+(\.\d+)*)$
+ARG CAGE_VERSION=0.2.0
+RUN mkdir -p /cage
+WORKDIR /build
+RUN curl -f --retry 5 --retry-delay 3 --retry-all-errors -L https://github.com/cage-kiosk/cage/archive/refs/tags/v${CAGE_VERSION}.tar.gz -o cage.tar.gz && tar -xf cage.tar.gz && rm cage.tar.gz && mv cage-* cage-src
+COPY --from=wlroots-src /build/wlroots-src /build/cage-src/subprojects/wlroots
+WORKDIR /build/cage-src
+RUN pip3 install meson ninja
+RUN meson setup buildDir ${COMMON_MESON_FLAGS} -Dman-pages=disabled \
+      -Dwlroots:default_library=static -Dwlroots:examples=false -Dwlroots:werror=false \
+      -Dwlroots:xwayland=disabled
+RUN DESTDIR=/cage-root ninja -C buildDir install && \
+    install -Dm0755 /cage-root/usr/bin/cage /cage/usr/bin/cage && \
+    /cage/usr/bin/cage -v
+
+# isotope-install-gui needs cgo (libwayland-client, libEGL, libxkbcommon), so
+# it is built here with the Hadron toolchain, not in golang:alpine like the
+# static text installer. Go itself is copied from the same golang image. The
+# tests run without the screenshots, which need a GPU context; CI runs them
+# (.github/workflows/ci.yml).
+FROM toolchain AS install-gui-build
+COPY --from=wayland /wayland /
+COPY --from=libxkb /libxkb /
+COPY --from=libdrm /libdrm /
+COPY --from=gl / /
+COPY --from=golang:1.25.0-alpine3.22 /usr/local/go /usr/local/go
+ENV PATH=/usr/local/go/bin:$PATH GOTOOLCHAIN=local
+WORKDIR /src
+COPY install-ui/go.mod install-ui/go.sum install-ui/
+COPY install-gui/go.mod install-gui/go.sum install-gui/
+RUN cd install-gui && go mod download
+COPY install-ui/ install-ui/
+COPY install-gui/ install-gui/
+RUN cd install-gui && \
+    CGO_ENABLED=1 ISOTOPE_GUI_SKIP_SCREENSHOTS=1 go test -tags nox11,novulkan . && \
+    CGO_ENABLED=1 go build -tags nox11,novulkan -trimpath -ldflags="-s -w" -o /out/isotope-install-gui . && \
+    { /out/isotope-install-gui --nonsense 2>/dev/null; [ $? -eq 2 ]; }
+
+
+# ---------------------------------------------------------------------------
 # isotope-update: release checker, desktop notifier, `kairos-agent upgrade`
 # wrapper and the root update service on the system bus (isotope-updated). Static
 # (CGO_ENABLED=0), like the installer TUI, and for the same reasons kept out of
@@ -4990,6 +5081,10 @@ RUN chmod 1777 /tmp; \
 # system. (The shell installer it replaces lived in /usr/local/bin and only
 # worked because the installer runs in the live environment.)
 COPY --from=install-ui-build /out/isotope-install-ui /usr/bin/isotope-install-ui
+# The graphical installer: isotope-install-ui runs it inside cage when both are
+# here. The server image has neither and keeps the text installer.
+COPY --from=install-gui-build /out/isotope-install-gui /usr/bin/isotope-install-gui
+COPY --from=cage /cage/usr/bin/cage /usr/bin/cage
 # The isotope command: updates, system extensions, the disk's recovery key,
 # backups. /usr/bin for the same /usr/local reason. isotope-update,
 # isotope-ext and isotope-recovery are its older names, kept as links: run as

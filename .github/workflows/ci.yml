@@ -43,6 +43,25 @@ jobs:
         working-directory: install-ui
         run: go vet ./... && go test ./...
 
+      # The graphical installer needs cgo and, for its screenshot tests,
+      # Mesa's software renderer (llvmpipe) behind EGL's surfaceless
+      # platform. The PNGs in install-gui/testdata are compared within a
+      # small tolerance.
+      - name: install-gui build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends \
+            libwayland-dev libxkbcommon-dev libegl-dev libgles-dev libegl-mesa0 libgl1-mesa-dri
+
+      - name: install-gui tests
+        working-directory: install-gui
+        env:
+          CGO_ENABLED: "1"
+          EGL_PLATFORM: surfaceless
+        run: |
+          test -z "$(gofmt -l .)"
+          go vet -tags nox11,novulkan ./... && go test -tags nox11,novulkan ./...
+
       # A rename that moves a file but not the links to it leaves the link
       # dangling, and systemd then refuses the unit with no build error.
       # Absolute targets resolve in the image, not here, so skip them.

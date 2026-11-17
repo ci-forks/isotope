@@ -141,11 +141,12 @@
       ]
     },
     {
-      "description": "Each sway release needs one wlroots series",
+      "description": "Each sway and cage release needs one wlroots series",
       "groupName": "sway and wlroots",
       "matchDepNames": [
         "swaywm/sway",
-        "wlroots/wlroots"
+        "wlroots/wlroots",
+        "cage-kiosk/cage"
       ]
     },
     {
