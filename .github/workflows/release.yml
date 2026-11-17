@@ -26,9 +26,9 @@ env:
   # $IMAGE_REPO:<flavor>-<tag> (GPU=full, the standard images for real
   # machines) or $IMAGE_REPO:<flavor>-vm-<tag> (GPU=vm, for virtual machines),
   # by the GPU line in /etc/isotope/release, and only for a
-  # tag GitHub reports as the latest *published* release, so an image pushed
-  # here is invisible to users until the release job below has verified and
-  # published every asset.
+  # published release that carries an uploaded .build.json manifest
+  # (update/github.go), so an image pushed here is invisible to users until
+  # the release job below has verified and uploaded every asset.
   IMAGE_REPO: ghcr.io/${{ github.repository }}
   # Isotope was Hadron Desktop. A system installed before the rename runs an
   # updater that looks for upgrades in the old repository, so every upgrade
@@ -46,6 +46,41 @@ env:
   CACHE_PUSH: "true"
 
 jobs:
+  # A release can be published from the web page together with its tag, hours
+  # before this workflow has built anything for it. While it is published,
+  # GitHub's "latest release" and the README's download link point at a
+  # release with no ISOs, and an updater older than the manifest check offers
+  # an upgrade to images that do not exist yet. So put such a release back to
+  # draft first; the release job publishes it again once its assets are up. A
+  # run that fails leaves it a draft, which is the point.
+  hold-release:
+    name: Hold an early release as a draft
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    outputs:
+      held: ${{ steps.hold.outputs.held }}
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - name: Put a published release back to draft
+        id: hold
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          draft="$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft 2>/dev/null || echo none)"
+          case "$draft" in
+            none) echo "no release for $RELEASE_TAG yet; the release job creates it" ;;
+            true) echo "$RELEASE_TAG is already a draft" ;;
+            false)
+              gh release edit "$RELEASE_TAG" --draft=true --repo "$GITHUB_REPOSITORY"
+              echo "held=true" >> "$GITHUB_OUTPUT"
+              echo "$RELEASE_TAG is a draft until its assets are uploaded"
+              ;;
+          esac
+
   # LLVM and clang compile for about three hours, and every variant needs
   # them: Mesa's llvmpipe links libLLVM, and COSMIC and niri also use clang.
   # Built on their own runner, they no longer share one job's 330-minute
@@ -805,11 +840,12 @@ jobs:
   release:
     name: Publish GitHub Release
     needs:
+      - hold-release
       - build
       - build-agent
     # Spelled out because the default would also skip this job when only the
     # LLVM prebuild failed, which the builds recover from.
-    if: ${{ !cancelled() && needs.build.result == 'success' && needs.build-agent.result == 'success' }}
+    if: ${{ !cancelled() && needs.hold-release.result == 'success' && needs.build.result == 'success' && needs.build-agent.result == 'success' }}
     runs-on: ubuntu-24.04
     permissions:
       actions: read
@@ -941,6 +977,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          HELD: ${{ needs.hold-release.outputs.held }}
         run: |
           set -euo pipefail
           shopt -s nullglob
@@ -955,6 +992,11 @@ jobs:
             gh release upload "$RELEASE_TAG" "${assets[@]}" \
               --clobber \
               --repo "$GITHUB_REPOSITORY"
+            # Publish again only what hold-release put back to draft: a
+            # release someone keeps as a draft on purpose stays one.
+            if [[ "$HELD" == true ]]; then
+              gh release edit "$RELEASE_TAG" --draft=false --repo "$GITHUB_REPOSITORY"
+            fi
           else
             gh release create "$RELEASE_TAG" "${assets[@]}" \
               --verify-tag \

@@ -859,7 +859,7 @@ func countingGitHub(t *testing.T) *atomic.Int32 {
 			return
 		}
 		hits.Add(1)
-		fmt.Fprint(w, daemonReleases)
+		fmt.Fprint(w, withManifests(t, daemonReleases))
 	}))
 	t.Cleanup(srv.Close)
 	t.Setenv("ISOTOPE_UPDATE_API", srv.URL)
@@ -907,7 +907,7 @@ func TestReleasesErrorIsNotCached(t *testing.T) {
 			http.Error(w, "down", http.StatusBadGateway)
 			return
 		}
-		fmt.Fprint(w, daemonReleases)
+		fmt.Fprint(w, withManifests(t, daemonReleases))
 	}))
 	t.Cleanup(srv.Close)
 	t.Setenv("ISOTOPE_UPDATE_API", srv.URL)
