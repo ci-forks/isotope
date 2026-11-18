@@ -26,6 +26,9 @@
 #      installer is what provides
 #  10. the entries carry ids (isotope-*), and `default` names the install entry
 #      by id, as upstream does with kairos-install
+#  11. a "text installer" install entry: isotope.installer=text makes
+#      isotope-install-ui skip the graphical installer of the desktop ISOs (the
+#      server's has none, so there it is the same as "isotope")
 # Keep `CDLABEL=COS_LIVE`, the ($root)/boot/kernel + initrd paths, and the
 # {{NOMODESET}}/{{EXTEND_CMDLINE}} placeholders intact. AuroraBoot does NOT expand
 # those placeholders for an overlaid file (it only substitutes its own default), so
@@ -98,6 +101,11 @@ menuentry "isotope" --id isotope-install --class os --unrestricted {
 
 menuentry "isotope (safe graphics)" --id isotope-install-safe-graphics --class os --unrestricted {
     linux ($root)/boot/kernel cdroot root=live:CDLABEL=COS_LIVE rd.live.dir=/ rd.live.squashimg=rootfs.squashfs net.ifnames=1 console=ttyS0 console=tty1 rd.cos.disable vga=795{{NOMODESET}} install-mode-interactive selinux=0 $thor_options rd.live.overlay.overlayfs quiet splash loglevel=3 udev.log_level=3 systemd.show_status=false rd.systemd.show_status=false $isotope_vt_palette{{EXTEND_CMDLINE}}
+    initrd ($root)/boot/initrd
+}
+
+menuentry "isotope (text installer)" --id isotope-install-text --class os --unrestricted {
+    linux ($root)/boot/kernel cdroot root=live:CDLABEL=COS_LIVE rd.live.dir=/ rd.live.squashimg=rootfs.squashfs net.ifnames=1 console=ttyS0 console=tty1 rd.cos.disable vga=795 install-mode-interactive isotope.installer=text selinux=0 $thor_options rd.live.overlay.overlayfs quiet splash loglevel=3 udev.log_level=3 systemd.show_status=false rd.systemd.show_status=false $isotope_vt_palette{{EXTEND_CMDLINE}}
     initrd ($root)/boot/initrd
 }
 

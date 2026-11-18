@@ -395,6 +395,28 @@ There are two ways to create that user:
   cloud-config, then runs `kairos-agent install` behind a branded progress
   screen (`l` toggles the raw logs, `s` opens a rescue shell if the install
   fails). Source lives in `install-ui/`.
+
+  On the desktop ISOs (sway, i3, cosmic, niri) `isotope-install-ui` first
+  starts the **graphical installer**: `cage -s -- /usr/bin/isotope-install-gui`,
+  a Gio window over `install-ui/core`, so it asks the same questions with the
+  same checks and runs the same install. It falls back to the text installer
+  when cage exits before the window's first frame (no DRM device, no seat), when
+  the image has no cage (the server, the agent) or when the kernel command line
+  has `isotope.installer=text` (the live menu's "isotope (text installer)"
+  entry). A new keyboard layout restarts cage with it (exit status 75 and
+  `/run/isotope-install/state.json`), because Gio does not let a program
+  translate keys itself. "Open a terminal" on the failure page starts foot in
+  cage where the image has it (sway, niri), and otherwise exits with status 76
+  for the text installer's rescue shell on tty1. Source lives in
+  `install-gui/`; see
+  `docs/superpowers/specs/2026-11-17-graphical-installer-design.md`.
+
+  The GUI's tests need cgo and Mesa (llvmpipe, EGL's surfaceless platform).
+  `go test -tags nox11,novulkan ./...` in `install-gui/` renders every page at
+  1440x900 and 1024x768 and compares them with `install-gui/testdata/*.png`;
+  `go test -tags nox11,novulkan -update .` rewrites them after a change to a
+  page, and the PR shows the new PNGs. Run it on the Mesa CI uses (Ubuntu
+  24.04's), since another Mesa anti-aliases a little differently.
 - **Unattended cloud-config.** Provide a `cloud-config.yaml` (`users:`/`install:`
   block — see the example file) via AuroraBoot `--cloud-config` or a datasource.
   When one is present the TUI detects it and runs the normal unattended
@@ -555,7 +577,8 @@ isotope/
   Dockerfile          # multi-stage build of the whole desktop stack
   cloud-config.yaml   # example Kairos install config (creates the desktop user)
   rootfs/             # shared OS, installer and service overlay
-  install-ui/         # Go TUI installer (-> /usr/bin/isotope-install-ui)
+  install-ui/         # Go TUI installer and its core (-> /usr/bin/isotope-install-ui)
+  install-gui/        # graphical installer over install-ui/core (-> /usr/bin/isotope-install-gui)
   update/             # the isotope command: updates, tray, extensions, recovery key, backups (-> /usr/bin/isotope)
   scripts/            # release manifest, Hadron pin bump
   rootfs-sway/        # Wayland/Sway session config and native tools

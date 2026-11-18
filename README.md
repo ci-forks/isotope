@@ -101,9 +101,18 @@ installed machine to another desktop and keeps your files.
    sudo dd if=isotope-cosmic-v0.0.9-amd64.iso of=/dev/sdX bs=4M status=progress oflag=sync
    ```
 
-3. **Boot it.** The installer asks for a hostname, your user name and
-   password, your keyboard layout, your timezone, and the disk to use. It
-   then shows the summary before it erases anything.
+3. **Boot it.** The desktop ISOs start a graphical installer. It asks for
+   your keyboard layout and time zone, a computer name, your user name and
+   password, and the disk to use, and offers to encrypt your files. It shows
+   what is on each disk now and names what installing would erase, and it
+   shows a summary before it erases anything. The server ISO, the live
+   menu's "isotope (text installer)" entry and machines where the graphics
+   do not start get the text installer, which asks the same questions.
+
+   <p>
+     <img src="install-gui/testdata/2-keyboard-1440x900.png" alt="The graphical installer: keyboard layout and time zone" width="49%">
+     <img src="install-gui/testdata/4-disk-1440x900.png" alt="The graphical installer: the disk page" width="49%">
+   </p>
 
 > [!TIP]
 > To try it in a VM first, use the `-vm` ISO. Give the VM UEFI firmware,

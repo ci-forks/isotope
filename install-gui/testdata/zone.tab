@@ -1,0 +1,33 @@
+# The lines of tzdata's zone.tab (public domain) for core.CuratedTimezones, for the tests.
+AE	+2518+05518	Asia/Dubai
+AT	+4813+01620	Europe/Vienna
+AU	-3352+15113	Australia/Sydney	New South Wales (most areas)
+BR	-2332-04637	America/Sao_Paulo	Brazil (southeast: GO, DF, MG, ES, RJ, SP, PR, SC, RS)
+CA	+4339-07923	America/Toronto	Eastern - ON & QC (most areas)
+CH	+4723+00832	Europe/Zurich
+CN	+3114+12128	Asia/Shanghai	Beijing Time
+DE	+5230+01322	Europe/Berlin	most of Germany
+EG	+3003+03115	Africa/Cairo
+ES	+4024-00341	Europe/Madrid	Spain (mainland)
+FR	+4852+00220	Europe/Paris
+GB	+513030-0000731	Europe/London
+GR	+3758+02343	Europe/Athens
+IE	+5320-00615	Europe/Dublin
+IN	+2232+08822	Asia/Kolkata
+IT	+4154+01229	Europe/Rome
+JP	+353916+1394441	Asia/Tokyo
+KR	+3733+12658	Asia/Seoul
+MX	+1924-09909	America/Mexico_City	Central Mexico
+NL	+5222+00454	Europe/Amsterdam
+NZ	-3652+17446	Pacific/Auckland	most of New Zealand
+PL	+5215+02100	Europe/Warsaw
+PT	+3843-00908	Europe/Lisbon	Portugal (mainland)
+RU	+554521+0373704	Europe/Moscow	MSK+00 - Moscow area
+SE	+5920+01803	Europe/Stockholm
+SG	+0117+10351	Asia/Singapore
+UA	+5026+03031	Europe/Kyiv	most of Ukraine
+US	+404251-0740023	America/New_York	Eastern (most areas)
+US	+415100-0873900	America/Chicago	Central (most areas)
+US	+394421-1045903	America/Denver	Mountain (most areas)
+US	+340308-1181434	America/Los_Angeles	Pacific
+ZA	-2615+02800	Africa/Johannesburg
