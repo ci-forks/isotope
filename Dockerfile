@@ -4740,6 +4740,11 @@ COPY rootfs/system/oem/90_desktop_installer.yaml rootfs/system/oem/93_isotope_ex
 COPY rootfs/etc/isotope/extensions.conf /etc/isotope/extensions.conf
 # The update service, its D-Bus activation and its polkit policy.
 COPY rootfs/usr/lib/systemd/system/isotope-updated.service /usr/lib/systemd/system/isotope-updated.service
+# Kernel errors off the boot screen: the command line's loglevel= applied again
+# in the real root (isotope-console-level.service).
+COPY rootfs/usr/lib/systemd/system/isotope-console-level.service /usr/lib/systemd/system/isotope-console-level.service
+COPY rootfs/usr/libexec/isotope-console-level /usr/libexec/isotope-console-level
+COPY rootfs/etc/systemd/system/sysinit.target.wants/ /etc/systemd/system/sysinit.target.wants/
 COPY rootfs/usr/share/dbus-1/ /usr/share/dbus-1/
 COPY rootfs/usr/share/polkit-1/ /usr/share/polkit-1/
 # Backups: the daily timer of `isotope backup --scheduled`, and the one-shot

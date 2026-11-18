@@ -58,6 +58,8 @@ check "the admin rule answers the update service" \
 check "polkitd user exists" "getent passwd polkitd"
 check "the update service is D-Bus activated" \
     "test -f /usr/share/dbus-1/system-services/io.kairos.IsotopeUpdate1.service && test -f /usr/lib/systemd/system/isotope-updated.service"
+check "kernel errors stay off the console (isotope-console-level in sysinit)" \
+    "test -x /usr/libexec/isotope-console-level && test -L /etc/systemd/system/sysinit.target.wants/isotope-console-level.service && test -f /usr/lib/systemd/system/isotope-console-level.service"
 check "isotope runs, and isotope-update and isotope-ext link to it" \
     "isotope help | grep -q upgrade && test \"\$(readlink /usr/bin/isotope-update)\" = isotope && test \"\$(readlink /usr/bin/isotope-ext)\" = isotope"
 check "isotope-recovery links to isotope" \

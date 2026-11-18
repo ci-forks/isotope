@@ -116,11 +116,13 @@ menuentry "isotope (boot local node from livecd)" --id isotope-boot-local --clas
 
 # The install entry plus isotope.bootvine: the splash hands the screen to
 # bootvine at once, which shows the boot's systemd jobs, failures and slowest
-# units (splash/README.md). D on the splash does the same from any entry. The
-# debug entry below stays without it: bootvine quiets the kernel console,
-# which would hide rd.debug's output.
+# units (splash/README.md). D on the splash does the same from any entry.
+# loglevel=4 instead of 3 lets kernel errors (a failing disk, a GPU driver)
+# reach the console here; isotope-console-level.service keeps them off it on
+# the other entries. The debug entry below stays without bootvine: bootvine
+# quiets the kernel console, which would hide rd.debug's output.
 menuentry "isotope (boot details)" --id isotope-boot-details --class os --unrestricted {
-    linux ($root)/boot/kernel cdroot root=live:CDLABEL=COS_LIVE rd.live.dir=/ rd.live.squashimg=rootfs.squashfs net.ifnames=1 console=ttyS0 console=tty1 rd.cos.disable vga=795 install-mode-interactive selinux=0 $thor_options rd.live.overlay.overlayfs quiet splash loglevel=3 udev.log_level=3 systemd.show_status=false rd.systemd.show_status=false isotope.bootvine $isotope_vt_palette{{EXTEND_CMDLINE}}
+    linux ($root)/boot/kernel cdroot root=live:CDLABEL=COS_LIVE rd.live.dir=/ rd.live.squashimg=rootfs.squashfs net.ifnames=1 console=ttyS0 console=tty1 rd.cos.disable vga=795 install-mode-interactive selinux=0 $thor_options rd.live.overlay.overlayfs quiet splash loglevel=4 udev.log_level=3 systemd.show_status=false rd.systemd.show_status=false isotope.bootvine $isotope_vt_palette{{EXTEND_CMDLINE}}
     initrd ($root)/boot/initrd
 }
 

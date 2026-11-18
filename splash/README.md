@@ -99,6 +99,13 @@ command line does the same from the start, with no animation; the GRUB menus
 have an entry for it ("boot details" in the installed menu and on the live
 ISO).
 
+Kernel errors, such as a disk that fails a read or a GPU driver warning, reach
+the console only on the boot details entries, which pass `loglevel=4`. The
+other entries pass `loglevel=3`, but the console level is 4 again by the time
+the real root starts; `isotope-console-level.service` (in `sysinit.target`)
+applies the command line's last `loglevel=` again. An entry with no
+`loglevel=` (recovery, the state reset) is left as the kernel has it.
+
 - **Started by the splash only.** The Dockerfile `bootvine` stage installs
   `/usr/bin/bootvine` and `bootvine.service`, not enabled. The
   `52isotope-bootvine` dracut module copies both into the initramfs (bootvine's

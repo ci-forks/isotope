@@ -37,6 +37,15 @@ check "grubmenu.cfg leaves splash/quiet to kairos-init" \
     "! grep -E '^set extra_cmdline=.*(quiet|splash)' $G"
 check "grubmenu.cfg preserves any pre-existing extra_cmdline" \
     "grep -q 'set extra_cmdline=\"\${extra_cmdline}' $G"
+# loglevel=3 is found raised to 4 in the real root, where kernel errors then
+# print over the splash and the login. isotope-console-level.service applies
+# the command line's value again; the boot details entry passes loglevel=4.
+check "console level unit is enabled in sysinit" \
+    'test -x /usr/libexec/isotope-console-level && test "$(readlink /etc/systemd/system/sysinit.target.wants/isotope-console-level.service)" = /usr/lib/systemd/system/isotope-console-level.service && test -f /usr/lib/systemd/system/isotope-console-level.service'
+check "console level script applies the last loglevel= and only the first field" \
+    'd=$(mktemp -d) && echo "quiet loglevel=3 udev.log_level=3 loglevel=4 isotope.bootvine" > $d/c && echo "7 4 1 7" > $d/p && /usr/libexec/isotope-console-level $d/c $d/p && [ "$(cat $d/p)" = 4 ] && echo "console=tty1 rd.udev.log_level=3" > $d/c && echo "7 4 1 7" > $d/p && /usr/libexec/isotope-console-level $d/c $d/p && [ "$(cat $d/p)" = "7 4 1 7" ]'
+check "boot details entry lets kernel errors through (loglevel=4 last)" \
+    "grep -q 'loglevel=4 isotope.bootvine\$' $G"
 check "grubmenu.cfg sets the console palette (violet ink, not black)" \
     "grep -q '^set isotope_vt_palette=\"vt.default_red=0x1a,' $G && grep -q 'extra_cmdline}.*\${isotope_vt_palette}' $G"
 
