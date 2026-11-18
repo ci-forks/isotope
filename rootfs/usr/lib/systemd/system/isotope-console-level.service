@@ -1,0 +1,21 @@
+[Unit]
+Description=Apply the kernel console log level from the command line
+Documentation=file:///usr/libexec/isotope-console-level
+# The normal boot entries pass loglevel=3, but the console level is 4 by the
+# time the real root starts, so kernel errors (a failing disk, a GPU driver)
+# print over the splash and the login screen. This puts the command line's
+# value back, early in the real root. The boot details entries pass
+# loglevel=4, so those errors show there. Entries with no loglevel=
+# (recovery, the state reset) keep whatever the kernel has.
+DefaultDependencies=no
+ConditionKernelCommandLine=loglevel
+After=systemd-sysctl.service
+Before=sysinit.target shutdown.target
+Conflicts=shutdown.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/isotope-console-level
+
+[Install]
+WantedBy=sysinit.target

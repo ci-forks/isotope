@@ -1,0 +1,23 @@
+#!/bin/sh
+# Set the kernel console log level to the last loglevel= on the kernel command
+# line (the kernel uses the last one too). isotope-console-level.service runs
+# this early in the real root: something before it leaves the level at 4, so
+# kernel errors print over the boot screen although the entry asked for 3.
+#
+#   isotope-console-level [CMDLINE_FILE [PRINTK_FILE]]
+#
+# The two paths are for the tests.
+set -eu
+cmdline="${1:-/proc/cmdline}"
+printk="${2:-/proc/sys/kernel/printk}"
+
+level=""
+for arg in $(cat "$cmdline"); do
+    case "$arg" in
+        loglevel=[0-9]) level="${arg#loglevel=}" ;;
+        loglevel=1[0-5]) level="${arg#loglevel=}" ;;
+    esac
+done
+[ -n "$level" ] || exit 0
+# Writing one number changes only the console level, the first field.
+echo "$level" > "$printk"

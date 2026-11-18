@@ -80,6 +80,9 @@ check "debug entry left verbose" \
 # must see (so `splash` too). bootvine quiets the console, so not on debug.
 check "boot details entry starts bootvine from the splash" \
     "entry 'isotope (boot details)' | grep -q ' quiet splash ' && entry 'isotope (boot details)' | grep -q ' isotope.bootvine '"
+# Kernel errors reach the console only on boot details (isotope-console-level).
+check "boot details entry passes loglevel=4, the install entry loglevel=3" \
+    "entry 'isotope (boot details)' | grep -q ' loglevel=4 ' && ! entry 'isotope (boot details)' | grep -q ' loglevel=3 ' && entry 'isotope' | grep -q ' loglevel=3 '"
 check "debug entry has no bootvine" \
     "test -f '$CFG' && ! entry 'isotope (debug)' | grep -q bootvine"
 # GRUB has no hiddenentry command: on EFI it printed "can't find command".
