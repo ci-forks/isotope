@@ -232,7 +232,9 @@ func newUI(w *core.Wizard, shaper *text.Shaper, h hooks) *UI {
 	u.kbSearch = newField(true)
 	u.kbTry = newField(true)
 	u.tzField = newField(true)
+	u.tzField.selectOnFocus = true
 	u.host = newField(true)
+	u.host.selectOnFocus = true
 	u.user = newField(true)
 	u.pw = newSecret()
 	u.pw2 = newSecret()
@@ -327,7 +329,8 @@ func (u *UI) refocus() {
 	case pRecovery:
 		u.focus = &u.rk.ed
 	case pSummary:
-		u.focus = &u.back
+		// Nothing: Enter must neither erase a disk nor go back by itself.
+		// Tab reaches the Change links and both buttons.
 	case pDone:
 		u.focus = &u.restart
 	case pInstalling:
@@ -556,18 +559,6 @@ func (u *UI) nextDisk() {
 	}
 	u.w.SetDisk(u.diskSel)
 	u.goTo(guiPage(u.w.Page))
-}
-
-// sizeText is a disk size as the mocks write it: "1 TB", "64 GB".
-func sizeText(gb int) string {
-	if gb >= 1000 {
-		tb := float64(gb) / 1000
-		if tb == float64(int(tb)) || tb >= 10 {
-			return fmt.Sprintf("%.0f TB", tb)
-		}
-		return fmt.Sprintf("%.1f TB", tb)
-	}
-	return fmt.Sprintf("%d GB", gb)
 }
 
 // --- encryption and the recovery key ----------------------------------------
@@ -896,6 +887,25 @@ func (u *UI) update(gtx layout.Context) {
 			u.rescanDisks()
 		}
 	case pEncrypt:
+		// Left and Right move between the two cards, as in a radio group.
+		for {
+			e, ok := gtx.Event(
+				key.Filter{Focus: &u.encNo, Name: key.NameRightArrow},
+				key.Filter{Focus: &u.encYes, Name: key.NameLeftArrow},
+			)
+			if !ok {
+				break
+			}
+			if k, ok := e.(key.Event); ok && k.State == key.Press {
+				if k.Name == key.NameRightArrow {
+					u.encYes.Click()
+					u.focus = &u.encYes
+				} else {
+					u.encNo.Click()
+					u.focus = &u.encNo
+				}
+			}
+		}
 		if u.encNo.Clicked(gtx) {
 			u.encOn = false
 			if u.w.TrustedBoot {

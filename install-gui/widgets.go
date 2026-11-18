@@ -23,6 +23,12 @@ const (
 // focusRing is the accent ring of the mocks, shown on the focused control.
 var focusRing = over(colWindow, colAccent, 0.18)
 
+// focusRingStrong marks the focused button or card. It is light, so it shows
+// around the lime button too. The inputs' faint ring sits next to a solid
+// accent border; a button has none, and at 18% the ring did not show on the
+// footer at all.
+var focusRingStrong = over(colWindow, colText, 0.7)
+
 // button draws a 40 px button of the mocks. A disabled button is drawn
 // greyed and ignores clicks and keys.
 func (u *UI) button(gtx layout.Context, c *widget.Clickable, kind btnKind, txt string, enabled bool) layout.Dimensions {
@@ -45,7 +51,7 @@ func (u *UI) button(gtx layout.Context, c *widget.Clickable, kind btnKind, txt s
 		b.fill = colError
 	}
 	if enabled && gtx.Focused(c) {
-		b.ring, b.ringW = focusRing, 3
+		b.ring, b.ringW = focusRingStrong, 3
 		if kind == btnGhost {
 			fg = colText
 		}
@@ -71,6 +77,11 @@ type field struct {
 	ed   widget.Editor
 	err  string
 	mask bool
+	// selectOnFocus selects the text when the field gets the focus, so
+	// typing replaces a prefilled value ("UTC", "isotope") instead of
+	// appending to it.
+	selectOnFocus bool
+	hadFocus      bool
 }
 
 func newField(submit bool) *field {
@@ -91,6 +102,10 @@ func newSecret() *field {
 // box before the text (the "github.com/" of the SSH key field).
 func (u *UI) input(gtx layout.Context, f *field, s style, height float32, prefix string, trailing layout.Widget) layout.Dimensions {
 	focused := gtx.Focused(&f.ed)
+	if focused && !f.hadFocus && f.selectOnFocus {
+		f.ed.SetCaret(f.ed.Len(), 0)
+	}
+	f.hadFocus = focused
 	b := box{fill: colField, border: over(colField, colText, 0.08), bw: 1, radius: 8}
 	if focused {
 		b.border, b.ring, b.ringW = colAccent, focusRing, 3
@@ -192,7 +207,7 @@ func (u *UI) card(gtx layout.Context, c *widget.Clickable, selected bool, pad la
 		b.ring, b.ringW = over(colWindow, colAccent, 0.12), 4
 	}
 	if gtx.Focused(c) {
-		b.ring, b.ringW = focusRing, 3
+		b.ring, b.ringW = focusRingStrong, 3
 		if !selected {
 			b.border = over(colWindow, colAccent, 0.6)
 		}

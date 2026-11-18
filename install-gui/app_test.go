@@ -147,14 +147,6 @@ func TestRestoreReopensWhereItWas(t *testing.T) {
 	}
 }
 
-func TestSizeText(t *testing.T) {
-	for gb, want := range map[int]string{64: "64 GB", 1000: "1 TB", 2000: "2 TB", 1500: "1.5 TB", 12000: "12 TB"} {
-		if got := sizeText(gb); got != want {
-			t.Errorf("sizeText(%d) = %q, want %q", gb, got, want)
-		}
-	}
-}
-
 func TestMapClickPicksTheNearestCity(t *testing.T) {
 	u := fixture(t, false)
 	toKeyboard(t, u)

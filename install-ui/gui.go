@@ -125,7 +125,8 @@ func runGUI() (fallback bool, note string, err error) {
 // guiEnv is cage's environment: the keymap the GUI asked for, a runtime
 // directory for the Wayland socket (a system service has none), libseat's
 // builtin backend (the service runs as root on tty1 with no logind
-// session), and the flag that lets the GUI ask for a relaunch.
+// session), software rendering allowed, the installer's cursor theme, and
+// the flag that lets the GUI ask for a relaunch.
 func guiEnv(run string) []string {
 	env := os.Environ()
 	set := func(k, v string) {
@@ -144,6 +145,17 @@ func guiEnv(run string) []string {
 	}
 	if os.Getenv("LIBSEAT_BACKEND") == "" {
 		set("LIBSEAT_BACKEND", "builtin")
+	}
+	// A machine with no GPU driver Mesa knows (a VM with no 3D, nomodeset)
+	// has only llvmpipe, and wlroots refuses a software renderer unless told
+	// it may: cage then exits before the GUI starts.
+	if os.Getenv("WLR_RENDERER_ALLOW_SOFTWARE") == "" {
+		set("WLR_RENDERER_ALLOW_SOFTWARE", "1")
+	}
+	// Adwaita under the X11 names Gio asks for; see
+	// rootfs/usr/share/icons/isotope-installer/index.theme.
+	if os.Getenv("XCURSOR_THEME") == "" {
+		set("XCURSOR_THEME", "isotope-installer")
 	}
 	set("ISOTOPE_INSTALL_GUI_RELAUNCH", "1")
 	if s, err := core.ReadGUIState(core.GUIStatePath()); err == nil && s.Layout != "" {
