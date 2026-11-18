@@ -138,3 +138,28 @@ func TestRunGUIRescueShell(t *testing.T) {
 		t.Fatalf("fallback %v, err %v", fallback, err)
 	}
 }
+
+// The live ISO has no GPU driver on a VM with no 3D (and none with
+// nomodeset): wlroots must be allowed llvmpipe, and Gio needs the X11 cursor
+// names the installer's theme provides. Either missing stops cage or the GUI
+// before the first frame. A value already set wins.
+func TestGUIEnvRendersWithoutAGPU(t *testing.T) {
+	t.Setenv("WLR_RENDERER_ALLOW_SOFTWARE", "")
+	t.Setenv("XCURSOR_THEME", "")
+	env := guiEnv(t.TempDir())
+	for _, want := range []string{"WLR_RENDERER_ALLOW_SOFTWARE=1", "XCURSOR_THEME=isotope-installer"} {
+		found := false
+		for _, e := range env {
+			found = found || e == want
+		}
+		if !found {
+			t.Errorf("guiEnv lacks %s", want)
+		}
+	}
+	t.Setenv("XCURSOR_THEME", "Bibata")
+	for _, e := range guiEnv(t.TempDir()) {
+		if strings.HasPrefix(e, "XCURSOR_THEME=") && e != "XCURSOR_THEME=Bibata" {
+			t.Errorf("guiEnv overrode a set XCURSOR_THEME: %s", e)
+		}
+	}
+}

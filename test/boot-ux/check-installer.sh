@@ -40,4 +40,18 @@ check "no stage reads install-mode from the cmdline" \
 check "the Kairos stage this hooks reads the same sentinels" \
     'grep -q "/run/cos/install_mode_interactive" /system/oem/52_installer.yaml'
 
+# The graphical installer, on the desktop variants. Each of these stopped it
+# on the live ISO before the first frame (cage, then the GUI exited and the
+# text installer took over).
+if docker run --rm "$IMAGE" test -x /usr/bin/isotope-install-gui >/dev/null 2>&1; then
+    check "cage present next to the GUI" 'test -x /usr/bin/cage'
+    # libxkbcommon reads the locale's Compose table; Gio stops without one.
+    check "Compose tables for the GUI (libX11 locale data)" \
+        'test -s /usr/share/X11/locale/compose.dir && test -s /usr/share/X11/locale/en_US.UTF-8/Compose'
+    # Gio asks for left_ptr and the other X11 names; every link must land on
+    # an Adwaita cursor in this image.
+    check "installer cursor theme resolves (left_ptr and the rest)" \
+        'd=/usr/share/icons/isotope-installer/cursors; test -e $d/left_ptr && [ -z "$(find -L $d -type l)" ]'
+fi
+
 exit "$fail"

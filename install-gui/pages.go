@@ -704,7 +704,8 @@ func (u *UI) info(i int) core.DiskInfo {
 		d = u.diskInfo[i]
 	}
 	if d.SizeBytes == 0 {
-		d.SizeBytes = int64(u.w.Disks[i].SizeGB) * 1000 * 1000 * 1000
+		// core's SizeGB counts 2^30 bytes (sectors / 2 / 1024 / 1024).
+		d.SizeBytes = int64(u.w.Disks[i].SizeGB) << 30
 	}
 	return d
 }
@@ -715,12 +716,12 @@ func (u *UI) diskTitle(i int) string {
 	if m := u.info(i).Model; m != "" {
 		return m
 	}
-	return sizeText(u.w.Disks[i].SizeGB) + " disk"
+	return core.HumanSize(u.info(i).SizeBytes) + " disk"
 }
 
 // diskLine is "1 TB · NVMe".
 func (u *UI) diskLine(i int) string {
-	s := sizeText(u.w.Disks[i].SizeGB)
+	s := core.HumanSize(u.info(i).SizeBytes)
 	if b := u.info(i).Bus; b != "" {
 		s += " · " + b
 	}
@@ -1151,7 +1152,7 @@ func (u *UI) summary(gtx layout.Context) layout.Dimensions {
 	diskVal := c.Disk
 	for i, d := range u.w.Disks {
 		if d.Path == c.Disk {
-			diskVal = sizeText(d.SizeGB) + " · "
+			diskVal = core.HumanSize(u.info(i).SizeBytes) + " · "
 			if m := u.info(i).Model; m != "" {
 				diskVal = m + " · " + diskVal
 			}

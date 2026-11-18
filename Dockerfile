@@ -5120,6 +5120,10 @@ COPY --from=install-ui-build /out/isotope-install-ui /usr/bin/isotope-install-ui
 # here. The server image has neither and keeps the text installer.
 COPY --from=install-gui-build /out/isotope-install-gui /usr/bin/isotope-install-gui
 COPY --from=cage /cage/usr/bin/cage /usr/bin/cage
+# libX11's Compose tables, data only. libxkbcommon reads them for the locale,
+# and Gio stops ("xkb_compose_table_new_from_locale failed") without them;
+# they also make dead keys work in the GUI. Only i3 ships libX11 itself.
+COPY --from=x11-libs /x11-libs/usr/share/X11/locale /usr/share/X11/locale
 # The isotope command: updates, system extensions, the disk's recovery key,
 # backups. /usr/bin for the same /usr/local reason. isotope-update,
 # isotope-ext and isotope-recovery are its older names, kept as links: run as
