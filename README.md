@@ -177,7 +177,7 @@ isotope                        # installed version and latest release
 isotope upgrade                # install the latest server release
 isotope ext list               # system extensions
 isotope backup                 # back up the whole machine
-sudo nmcli device status      # the network
+sudo nmcli device status      # the network (or sudo nmtui, a text UI)
 docker run --rm hello-world   # containers, kept on the persistent partition
 ```
 

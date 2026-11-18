@@ -1186,6 +1186,47 @@ RUN ./configure ${COMMON_CONFIGURE_ARGS} --with-shared --enable-termcap --disabl
 RUN make -j$(nproc) libs && make install.libs install.includes DESTDIR=/ncurses
 
 
+# S-Lang — the terminal library newt draws with. Only the library is kept:
+# slsh and the S-Lang modules are not needed by nmtui. jedsoft.org publishes
+# no checksums, so the tarball is checked against a SHA256 computed when
+# pinned; a version bump must update SLANG_SHA256 too. The make is serial:
+# the slang makefiles are not safe to run in parallel.
+FROM toolchain AS slang
+ARG SLANG_VERSION=2.3.3
+ARG SLANG_SHA256=f9145054ae131973c61208ea82486d5dd10e3c5cdad23b7c4a0617743c8f5a18
+RUN mkdir -p /slang
+WORKDIR /build
+RUN curl -fL --retry 5 --retry-delay 3 --retry-all-errors https://www.jedsoft.org/releases/slang/slang-${SLANG_VERSION}.tar.bz2 -o slang.tar.bz2 && \
+    echo "${SLANG_SHA256}  slang.tar.bz2" | sha256sum -c - && \
+    tar -xjf slang.tar.bz2 && rm slang.tar.bz2 && mv slang-* slang-src
+WORKDIR /build/slang-src
+RUN ./configure ${COMMON_CONFIGURE_ARGS} --without-png --without-pcre --without-onig --without-z --without-iconv
+RUN make -C src elf && make -C src install-elf DESTDIR=/slang && make install-pkgconfig DESTDIR=/slang && \
+    rm -rf /slang/usr/share/doc
+
+
+# newt — the text widget library nmtui is built on. Upstream (gitlab.com/newt-ui)
+# no longer uploads release tarballs, so this takes the tagged source from the
+# GitHub mirror (mlichvar/newt, the maintainer's), checked against a SHA256
+# computed when pinned. Tags are r0-52-25 for 0.52.25. Only the shared library
+# is built: whiptail needs popt and nmtui does not need whiptail.
+FROM toolchain AS newt
+COPY --from=slang /slang /
+ARG NEWT_VERSION=0.52.25
+ARG NEWT_SHA256=6984c9bd754be2fbcf896a0a8bd5b659cd231935a3cce7b8554bfc25ceac91e7
+RUN mkdir -p /newt
+WORKDIR /build
+RUN curl -fL --retry 5 --retry-delay 3 --retry-all-errors https://github.com/mlichvar/newt/archive/refs/tags/r$(echo ${NEWT_VERSION} | tr . -).tar.gz -o newt.tar.gz && \
+    echo "${NEWT_SHA256}  newt.tar.gz" | sha256sum -c - && \
+    tar -xzf newt.tar.gz && rm newt.tar.gz && mv newt-* newt-src
+WORKDIR /build/newt-src
+# The git tree has no configure script; autogen.sh would also build the
+# translations, which need gettext tools and are off here (--disable-nls).
+RUN autoheader && autoconf
+RUN ./configure ${COMMON_CONFIGURE_ARGS} --without-python --without-tcl --disable-nls
+RUN make -j$(nproc) sharedlib && make install-sh DESTDIR=/newt
+
+
 # libxslt — provides xsltproc, a build-time requirement of NetworkManager
 FROM toolchain AS libxslt
 # renovate: datasource=gitlab-tags depName=GNOME/libxslt registryUrl=https://gitlab.gnome.org extractVersion=^v(?<version>\d+(\.\d+)*)$
@@ -1207,6 +1248,8 @@ COPY --from=libndp /libndp /
 COPY --from=libnl /libnl /
 COPY --from=libxslt /libxslt /
 COPY --from=ncurses /ncurses /
+COPY --from=slang /slang /
+COPY --from=newt /newt /
 # The toolchain's libreadline needs termcap symbols from libncurses; make the
 # readline pkg-config dependency pull it in so nmcli links cleanly.
 RUN sed -i 's/-lreadline/-lreadline -lncurses/' /usr/lib/pkgconfig/readline.pc /usr/lib64/pkgconfig/readline.pc 2>/dev/null || true
@@ -1219,7 +1262,7 @@ WORKDIR /build/nm-src
 RUN pip3 install meson ninja
 RUN meson setup buildDir ${COMMON_MESON_FLAGS} --sbindir=bin \
     -Dpolkit=false -Dwifi=true -Diwd=false -Dwext=false \
-    -Dnmcli=true -Dnmtui=false -Dmodem_manager=false -Dppp=false -Dovs=false \
+    -Dnmcli=true -Dnmtui=true -Dmodem_manager=false -Dppp=false -Dovs=false \
     -Dintrospection=false -Ddocs=false -Dtests=no -Dlibpsl=false -Dqt=false \
     -Dselinux=false -Dvapi=false -Difcfg_rh=false -Dlibaudit=no \
     -Dsession_tracking=systemd -Dsuspend_resume=systemd -Dsystemd_journal=true \
@@ -4377,6 +4420,8 @@ COPY --from=libndp /libndp /
 COPY --from=networkmanager /networkmanager /
 COPY --from=wireless-regdb /wireless-regdb /
 COPY --from=ncurses /ncurses /
+COPY --from=slang /slang /
+COPY --from=newt /newt /
 # M3: audio
 COPY --from=alsa-lib /alsa-lib /
 COPY --from=alsa-ucm-conf /alsa-ucm-conf /
@@ -4488,6 +4533,8 @@ COPY --from=libndp /libndp /
 COPY --from=networkmanager /networkmanager /
 COPY --from=wireless-regdb /wireless-regdb /
 COPY --from=ncurses /ncurses /
+COPY --from=slang /slang /
+COPY --from=newt /newt /
 # M3: audio
 COPY --from=alsa-lib /alsa-lib /
 COPY --from=alsa-ucm-conf /alsa-ucm-conf /
@@ -4560,6 +4607,8 @@ COPY --from=libndp /libndp /
 COPY --from=networkmanager /networkmanager /
 COPY --from=wireless-regdb /wireless-regdb /
 COPY --from=ncurses /ncurses /
+COPY --from=slang /slang /
+COPY --from=newt /newt /
 # M3: audio
 COPY --from=alsa-lib /alsa-lib /
 COPY --from=alsa-ucm-conf /alsa-ucm-conf /
@@ -4643,6 +4692,8 @@ COPY --from=libndp /libndp /
 COPY --from=networkmanager /networkmanager /
 COPY --from=wireless-regdb /wireless-regdb /
 COPY --from=ncurses /ncurses /
+COPY --from=slang /slang /
+COPY --from=newt /newt /
 # M3: audio
 COPY --from=alsa-lib /alsa-lib /
 COPY --from=alsa-ucm-conf /alsa-ucm-conf /
@@ -4720,7 +4771,7 @@ COPY rootfs-niri/ /
 # manager, Mesa, fonts, Flatpak, audio or desktop session. It is not a
 # desktop variant: its image is the server-default stage below, which never
 # names a desktop stage, so BuildKit builds none of them. What it keeps from
-# the desktop build is the network stack (NetworkManager and nmcli), polkit
+# the desktop build is the network stack (NetworkManager, nmcli and nmtui), polkit
 # for the update service, and the boot, installer and update parts of
 # rootfs/, taken file by file because most of rootfs/ is desktop scripts.
 # ---------------------------------------------------------------------------
@@ -4731,6 +4782,8 @@ COPY --from=glib2 /glib2 /
 COPY --from=libnl /libnl /
 COPY --from=libndp /libndp /
 COPY --from=ncurses /ncurses /
+COPY --from=slang /slang /
+COPY --from=newt /newt /
 COPY --from=networkmanager /networkmanager /
 COPY --from=duktape /duktape /
 COPY --from=polkit /polkit /

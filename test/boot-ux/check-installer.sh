@@ -40,6 +40,15 @@ check "no stage reads install-mode from the cmdline" \
 check "the Kairos stage this hooks reads the same sentinels" \
     'grep -q "/run/cos/install_mode_interactive" /system/oem/52_installer.yaml'
 
+# nmtui is the way onto a network from a text console, for when the graphical
+# session does not start. Every edition ships it, and this script runs against
+# the desktop and the server images. Each check needs the binary to exist, for
+# the reason given above.
+check "nmtui present in /usr/bin" 'test -x /usr/bin/nmtui'
+check "nmtui finds all its libraries in the image (newt, slang)" \
+    'test -x /usr/bin/nmtui && ! ldd /usr/bin/nmtui 2>&1 | grep -q "not found"'
+check "nmtui runs (--help)" 'test -x /usr/bin/nmtui && /usr/bin/nmtui --help'
+
 # The graphical installer, on the desktop variants. Each of these stopped it
 # on the live ISO before the first frame (cage, then the GUI exited and the
 # text installer took over).
