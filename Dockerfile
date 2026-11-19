@@ -5089,10 +5089,21 @@ RUN chmod 1777 /tmp; \
     # Without setuid it cannot read /etc/shadow and every unlock fails with
     # "cannot retrieve authentication info".
     if [ -e /usr/sbin/unix_chkpwd ]; then chmod 4755 /usr/sbin/unix_chkpwd; fi; \
-    systemctl mask getty@tty1.service 2>/dev/null || true; \
-    # M2: NetworkManager is the network manager (systemd-networkd disabled at
-    # runtime in favour of NM).
+    # getty@tty1 stays enabled: ly@tty1 and cosmic-greeter declare
+    # Conflicts=getty@tty1, so the login screen replaces it at boot, and the
+    # installer's boot masks it in /run (Kairos' 52_installer.yaml). A static
+    # mask here left tty1 with no login at all when the login screen does not
+    # run, and broke Kairos' own `systemctl enable getty@tty1` at every boot.
+    # NetworkManager is the network manager. The Hadron base enables
+    # systemd-networkd too, so both ran a DHCP client on the wired card, and
+    # systemd-networkd-wait-online (which cannot see Wi-Fi) held
+    # network-online.target for its 120 s timeout on every Wi-Fi or unplugged
+    # boot. NetworkManager-wait-online stays the one network-online waiter.
+    systemctl disable systemd-networkd.service systemd-networkd.socket \
+      systemd-networkd-wait-online.service 2>/dev/null || true; \
+    ! ls /etc/systemd/system/*.wants/systemd-networkd* 2>/dev/null | grep -q . || exit 1; \
     systemctl enable NetworkManager.service wpa_supplicant.service 2>/dev/null || true; \
+    test -L /etc/systemd/system/network-online.target.wants/NetworkManager-wait-online.service || exit 1; \
     # M3: PipeWire + WirePlumber as per-user services
     systemctl --global enable pipewire.socket pipewire-pulse.socket wireplumber.service 2>/dev/null || true; \
     # The keyring's control socket, so pam_gnome_keyring (ly, greetd) unlocks
@@ -5194,8 +5205,14 @@ RUN chmod 1777 /tmp; \
     for d in /etc/polkit-1/rules.d /usr/share/polkit-1/rules.d; do \
       mkdir -p "$d" && chown polkitd:root "$d" && chmod 700 "$d"; \
     done; \
+    # NetworkManager only, as on the desktop: no systemd-networkd running a
+    # second DHCP client on the same card.
+    systemctl disable systemd-networkd.service systemd-networkd.socket \
+      systemd-networkd-wait-online.service 2>/dev/null || true; \
+    ! ls /etc/systemd/system/*.wants/systemd-networkd* 2>/dev/null | grep -q . || exit 1; \
     systemctl enable NetworkManager.service; \
-    test -L /etc/systemd/system/multi-user.target.wants/NetworkManager.service
+    test -L /etc/systemd/system/multi-user.target.wants/NetworkManager.service && \
+    test -L /etc/systemd/system/network-online.target.wants/NetworkManager-wait-online.service
 COPY --from=install-ui-build /out/isotope-install-ui /usr/bin/isotope-install-ui
 COPY --from=update-build /out/isotope /usr/bin/isotope
 RUN ln -sf isotope /usr/bin/isotope-update

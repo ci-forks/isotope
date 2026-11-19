@@ -22,5 +22,10 @@ stages:
         - mkdir -p /var/lib/docker /etc/systemd/system/multi-user.target.wants
         - ln -sf /usr/lib/systemd/system/docker.service /etc/systemd/system/multi-user.target.wants/docker.service
         - systemctl daemon-reload
-        - systemctl start docker.socket || true
-        - systemctl start docker.service || true
+        # Queue the start WITHOUT waiting. This stage runs inside
+        # cos-setup-boot.service, and the login screen (ly, cosmic-greeter)
+        # is ordered after it. docker.service is After=network-online.target,
+        # so a blocking start waits for the network: with no cable, or on
+        # Wi-Fi before anyone has logged in, that is the 120 s wait-online
+        # timeout, and the login screen came up two minutes late.
+        - systemctl start --no-block docker.socket docker.service || true

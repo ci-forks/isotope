@@ -17,6 +17,7 @@ fail=0
 
 "$SCRIPT_DIR/check-splash.sh"    "$IMAGE" || fail=1
 "$SCRIPT_DIR/check-initramfs.sh" "$IMAGE" || fail=1
+"$SCRIPT_DIR/check-boot-units.sh" "$IMAGE" || fail=1
 # The agent appliance boots the i3 session (so its subtitle says i3) but
 # upgrades along its own image line. The Makefile's tags are <flavor>-desktop:*,
 # so the flavor is read off the tag; set EXPECTED_FLAVOR to override.
