@@ -4753,6 +4753,11 @@ COPY rootfs/usr/lib/systemd/system/isotope-updated.service /usr/lib/systemd/syst
 # in the real root (isotope-console-level.service).
 COPY rootfs/usr/lib/systemd/system/isotope-console-level.service /usr/lib/systemd/system/isotope-console-level.service
 COPY rootfs/usr/libexec/isotope-console-level /usr/libexec/isotope-console-level
+# A serial getty only on a port with a UART behind it, and the tss user for the
+# TPM udev rules.
+COPY rootfs/usr/lib/systemd/system/serial-getty@.service.d/ /usr/lib/systemd/system/serial-getty@.service.d/
+COPY rootfs/usr/libexec/isotope-serial-present /usr/libexec/isotope-serial-present
+COPY rootfs/usr/lib/sysusers.d/tpm2-tss.conf /usr/lib/sysusers.d/tpm2-tss.conf
 COPY rootfs/etc/systemd/system/sysinit.target.wants/ /etc/systemd/system/sysinit.target.wants/
 COPY rootfs/usr/share/dbus-1/ /usr/share/dbus-1/
 COPY rootfs/usr/share/polkit-1/ /usr/share/polkit-1/
@@ -5236,6 +5241,11 @@ ARG FIPS=no-fips
 # /etc/kairos/branding/splash into the initramfs, so writing it here, before
 # kairos-init builds the initramfs, gives both halves of the boot the same one.
 RUN mkdir -p /etc/kairos/branding/splash && printf '%s\n' "${VERSION}" > /etc/kairos/branding/splash/version
+# The tss user and group for the TPM udev rules (/usr/lib/sysusers.d/tpm2-tss.conf)
+# in the image's /etc/passwd, so they do not depend on systemd-sysusers.service
+# running at boot. Every edition passes here.
+RUN systemd-sysusers tpm2-tss.conf && \
+    grep -q '^tss:' /etc/passwd && grep -q '^tss:' /etc/group
 # System extensions from the catalogs are unsigned; the normal install merges
 # them anyway (rootfs/etc/kairos/90_isotope_extensions.yaml and
 # rootfs/system/oem/93_isotope_extensions.yaml). A Trusted Boot image keeps
