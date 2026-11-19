@@ -48,7 +48,7 @@ kairos-init from the Kairos monorepo (`ghcr.io/kairos-io/kairos/kairos-init:mast
 - **Agent overlay:** an opt-in i3-based appliance build that layers Cua and
   the agent services on top of the XLibre desktop.
 - **Server edition** (`DESKTOP=server`): no desktop at all. The kernel,
-  network card firmware and CPU microcode, NetworkManager and nmcli, the
+  network card firmware and CPU microcode, NetworkManager, nmcli and nmtui, the
   OpenSSH server, a console login, the Isotope installer with disk encryption,
   `isotope` (updates, extensions, backups), and Docker (no Distrobox). It is built from its own Dockerfile
   stage (`server-default`), so no graphics, audio or Flatpak stage is built.

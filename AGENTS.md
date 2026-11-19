@@ -91,7 +91,7 @@ name that line).
 | It has | It does not have |
 |---|---|
 | kernel, network card firmware (the Ethernet drivers' set in the `firmware` stage, checked by `--require`) and CPU microcode | GPU, Wi-Fi, Bluetooth and audio firmware, SOF |
-| NetworkManager and nmcli; changes need root (`auth-polkit=root-only`) | wpa_supplicant, Wi-Fi |
+| NetworkManager, nmcli and nmtui; changes need root (`auth-polkit=root-only`) | wpa_supplicant, Wi-Fi |
 | OpenSSH server, a console login on tty1 | ly, greetd, a display server, a compositor, Mesa, LLVM |
 | the Isotope installer, both encryption modes, the splash's passphrase prompt in the initramfs | fonts beyond the console font, GTK, Qt, Flatpak, PipeWire, Distrobox |
 | `isotope` (and its `isotope-update`, `isotope-ext`, `isotope-recovery` links) through `isotope-updated` and polkit (the admin rule needs no agent, so they work over SSH); `isotope backup` and `isotope restore` through sudo, with restic and the backup timer | the tray, the Isotope menu and every `isotope-*` desktop script |
