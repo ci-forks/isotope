@@ -102,6 +102,30 @@ class StageKeyTest(unittest.TestCase):
         self.write("tools/helper.sh", "echo two\n")
         self.assertNotEqual(self.key(), k)
 
+    def test_bind_mounted_context_files(self):
+        self.write("tools/mounted.sh", "echo one\n")
+        self.edit("make mounted\n",
+                  "make mounted\nRUN --mount=type=bind,source=tools/mounted.sh,target=/m.sh sh /m.sh\n")
+        k = self.key()
+        self.write("tools/mounted.sh", "echo two\n")
+        self.assertNotEqual(self.key(), k)
+
+    def test_symlinks_are_hashed_by_target_not_followed(self):
+        os.makedirs(os.path.join(self.dir, "tree", "real"))
+        self.write("tree/real/file", "x\n")
+        # Dangling in the context: it points at a path inside the image.
+        os.symlink("/usr/lib/systemd/system/a.service", os.path.join(self.dir, "tree", "a.service"))
+        os.symlink("real", os.path.join(self.dir, "tree", "dirlink"))
+        self.edit("COPY tools/helper.sh", "COPY tree/ /\nCOPY tools/helper.sh")
+        k = self.key()
+        os.remove(os.path.join(self.dir, "tree", "dirlink"))
+        os.symlink("elsewhere", os.path.join(self.dir, "tree", "dirlink"))
+        k2 = self.key()
+        self.assertNotEqual(k2, k)
+        os.remove(os.path.join(self.dir, "tree", "a.service"))
+        os.symlink("/usr/lib/systemd/system/b.service", os.path.join(self.dir, "tree", "a.service"))
+        self.assertNotEqual(self.key(), k2)
+
     def test_unknown_stage_fails(self):
         with self.assertRaises(subprocess.CalledProcessError):
             self.key(stage="nope")

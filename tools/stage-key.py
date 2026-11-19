@@ -25,6 +25,8 @@ FROM_RE = re.compile(r"^FROM\s+(?:--platform=\S+\s+)?(\S+)(?:\s+AS\s+(\S+))?\s*$
 ARG_RE = re.compile(r"^ARG\s+([A-Za-z_][A-Za-z0-9_]*)(?:=(.*))?$")
 STAGE_REF_RE = re.compile(r"(?:--from=|,from=)([^\s,]+)")
 COPY_RE = re.compile(r"^(?:COPY|ADD)\s+(.*)$", re.I)
+RUN_RE = re.compile(r"^RUN\s", re.I)
+MOUNT_RE = re.compile(r"--mount=(\S+)")
 VAR_RE = re.compile(r"\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?")
 
 
@@ -73,7 +75,19 @@ def expand(s, args):
 
 
 def context_sources(line):
-    """The build-context paths a COPY or ADD line reads, or [] for --from."""
+    """The build-context paths a COPY, ADD or RUN line reads.
+
+    COPY --from reads another stage, not the context. A RUN reads the context
+    through a bind mount without from= (the source defaults to the context
+    root); other mount types and from= mounts read no context files.
+    """
+    if RUN_RE.match(line):
+        out = []
+        for spec in MOUNT_RE.findall(line):
+            opts = dict(o.partition("=")[::2] for o in spec.split(","))
+            if opts.get("type") == "bind" and "from" not in opts:
+                out.append(opts.get("source") or opts.get("src") or ".")
+        return out
     m = COPY_RE.match(line)
     if not m:
         return []
@@ -86,15 +100,23 @@ def context_sources(line):
 
 def hash_path(h, root, rel):
     full = os.path.join(root, rel)
-    if not os.path.exists(full):
+    if not os.path.lexists(full):
         sys.exit(f"stage-key: {rel} is copied from the build context but does not exist")
     paths = [full]
-    if os.path.isdir(full):
+    if os.path.isdir(full) and not os.path.islink(full):
+        # A symlink is copied as a link, so it is hashed by its target text,
+        # never followed: a link to a directory is one entry, and a link that
+        # dangles in the context (it points into the image) is fine.
         paths = sorted(
-            os.path.join(d, f) for d, _, fs in os.walk(full) for f in fs
+            os.path.join(d, f)
+            for d, ds, fs in os.walk(full)
+            for f in fs + [x for x in ds if os.path.islink(os.path.join(d, x))]
         )
     for p in paths:
         h.update(os.path.relpath(p, root).encode() + b"\0")
+        if os.path.islink(p):
+            h.update(b"->" + os.readlink(p).encode() + b"\0")
+            continue
         with open(p, "rb") as f:
             h.update(hashlib.sha256(f.read()).digest())
 

@@ -616,6 +616,9 @@ jobs:
       packages: write
       # cosign keyless signing of the pushed upgrade image.
       id-token: write
+      # Read the Agent Gates runs of the tagged commit (see "Look for passed
+      # agent gates").
+      actions: read
     # GitHub-hosted jobs are capped at six hours; the agent build plus the five
     # VM gates share that budget, and every individual gate additionally carries
     # its own shell timeout inside test/agent/run.sh.
@@ -655,6 +658,62 @@ jobs:
             /usr/share/dotnet
           docker system prune --all --force
           df -h /
+
+      # The five gates take about two hours here, one after another. When
+      # Agent Gates (agent-gates.yml) already passed every gate on this exact
+      # commit, from a nightly or a manual run, the release reuses that result
+      # and skips them. A pull request run does not count: it tested the merge
+      # of its branch into an older main, not this commit. Without such a run,
+      # or when the API cannot be read, every gate runs here as before. That
+      # run built the same sources without VERSION; the release build below
+      # passes VERSION=<tag>, and the version string is the only input the
+      # two builds do not share. To have the gates done before a release, run
+      # Agent Gates by hand on the commit to tag, or tag a commit the nightly
+      # run passed on.
+      - name: Look for passed agent gates
+        id: proven
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          sha="$(git rev-parse HEAD)"
+          required=(
+            "Build agent image and ISO"
+            "Native compatibility gate"
+            "MCP and privilege contract gate"
+            "Zero-touch install gate"
+            "Recovery and emergency pause gate"
+            "GTK and Chromium UI gate"
+          )
+          run_gates() {
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "$1"
+          }
+          if ! runs="$(gh api "repos/$REPO/actions/workflows/agent-gates.yml/runs?head_sha=$sha&status=success&per_page=100" \
+                --jq '.workflow_runs[] | select(.event != "pull_request" and .head_sha == "'"$sha"'") | "\(.id) \(.html_url)"')"; then
+            run_gates "Could not list the Agent Gates runs of $sha; running every gate."
+            exit 0
+          fi
+          while read -r id url; do
+            [[ -n "$id" ]] || continue
+            if ! jobs="$(gh api --paginate "repos/$REPO/actions/runs/$id/jobs?filter=latest&per_page=100" \
+                  --jq '.jobs[] | select(.conclusion == "success") | .name')"; then
+              continue
+            fi
+            missing=0
+            for name in "${required[@]}"; do
+              grep -qxF "$name" <<<"$jobs" || missing=1
+            done
+            if (( missing == 0 )); then
+              echo "run=false" >> "$GITHUB_OUTPUT"
+              echo "::notice::Agent Gates passed every gate on $sha in $url; the release does not run them again."
+              echo "Agent gates: reused $url (every gate passed on $sha)." >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+          done <<<"$runs"
+          run_gates "No Agent Gates run passed every gate on $sha; running every gate."
 
       - name: Install agent VM dependencies
         shell: bash
@@ -721,8 +780,10 @@ jobs:
           df -h /
 
       # --------------------------------------------------------------------
-      # Every agent gate runs before a single release byte is prepared. This
-      # job intentionally uploads nothing at all until all five have passed --
+      # Every agent gate runs before a single release byte is prepared, unless
+      # "Look for passed agent gates" found all five passed on this exact
+      # commit by Agent Gates. This job intentionally uploads nothing at all
+      # until all five have passed --
       # gate diagnostics are retained by .github/workflows/agent-gates.yml,
       # which runs the same gates on pull requests, manual dispatch, and
       # nightly.
@@ -732,6 +793,7 @@ jobs:
       # (test/agent/Dockerfile.compat) on top of the appliance image built
       # above; the i3 and agent layers are not built again.
       - name: Gate - native compatibility
+        if: steps.proven.outputs.run != 'false'
         shell: bash
         run: |
           set -euo pipefail
@@ -741,18 +803,21 @@ jobs:
       # public MCP tools plus the privilege boundaries, without writing to the
       # attached disk.
       - name: Gate - MCP and privilege contract
+        if: steps.proven.outputs.run != 'false'
         shell: bash
         run: |
           set -euo pipefail
           test/agent/run.sh contract "$AGENT_IMAGE"
 
       - name: Gate - zero-touch install
+        if: steps.proven.outputs.run != 'false'
         shell: bash
         run: |
           set -euo pipefail
           test/agent/run.sh install "$AGENT_IMAGE"
 
       - name: Gate - recovery and emergency pause
+        if: steps.proven.outputs.run != 'false'
         shell: bash
         run: |
           set -euo pipefail
@@ -761,6 +826,7 @@ jobs:
       # Drives the GTK reference app and the pinned Chromium Flatpak in the
       # visible XLibre session through public computer_use only.
       - name: Gate - GTK and Chromium UI
+        if: steps.proven.outputs.run != 'false'
         shell: bash
         run: |
           set -euo pipefail
