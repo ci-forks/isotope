@@ -34,6 +34,7 @@ on:
       - "tools/cosmic-build.sh"
       - "tools/stage-key.py"
       - "test/graphics/**"
+      - "test/boot-ux/check-boot-units.sh"
       - "scripts/ci-containerd-store.sh"
       - ".github/workflows/desktop-images.yml"
   workflow_dispatch:
@@ -82,7 +83,7 @@ jobs:
               "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/files" --jq '.[].filename')
             for f in "${files[@]}"; do
               case "$f" in
-                Dockerfile|Makefile|rootfs/*|test/graphics/*|tools/stage-key.py|\
+                Dockerfile|Makefile|rootfs/*|test/graphics/*|test/boot-ux/check-boot-units.sh|tools/stage-key.py|\
                 scripts/ci-containerd-store.sh|.github/workflows/desktop-images.yml)
                   for d in "${all[@]}"; do want[$d]=1; done ;;
                 rootfs-sway/*) want[sway]=1 ;;
@@ -219,3 +220,11 @@ jobs:
         if: steps.prebuilt.outputs.skip != 'true'
         shell: bash
         run: test/graphics/check-desktop-gl.sh "${DESKTOP}-desktop:dev"
+
+      # Boot ordering: no boot stage waits for the network, NetworkManager is
+      # the only network manager, tty1 has a login. The same step as in
+      # release.yml.
+      - name: Check boot units
+        if: steps.prebuilt.outputs.skip != 'true'
+        shell: bash
+        run: test/boot-ux/check-boot-units.sh "${DESKTOP}-desktop:dev"
