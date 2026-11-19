@@ -35,117 +35,11 @@ env:
   AGENT_IMAGE: agent-desktop:dev
 
 jobs:
-  checks:
-    name: Go unit, race, and static checks
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-
-    steps:
-      - name: Check out the pull request
-        uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-
-      - name: Set up Go
-        uses: actions/setup-go@v6
-        with:
-          go-version-file: agent/go.mod
-          cache-dependency-path: agent/go.sum
-
-      - name: Check formatting
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd agent
-          unformatted="$(gofmt -l .)"
-          if [[ -n "$unformatted" ]]; then
-            echo "These files are not gofmt-clean:" >&2
-            echo "$unformatted" >&2
-            exit 1
-          fi
-
-      - name: Vet and build
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd agent
-          go vet ./...
-          go build ./...
-
-      - name: Unit tests with the race detector
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd agent
-          go test -race ./...
-
-      # The installer TUI lives in its own standalone module (go 1.25), which the
-      # agent go.mod (go 1.25.0) setup-go step above already provisions a
-      # new-enough toolchain for, so no second Go setup is needed.
-      - name: Check install-ui formatting
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd install-ui
-          unformatted="$(gofmt -l .)"
-          if [[ -n "$unformatted" ]]; then
-            echo "These files are not gofmt-clean:" >&2
-            echo "$unformatted" >&2
-            exit 1
-          fi
-
-      - name: Vet and build install-ui
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd install-ui
-          go vet ./...
-          go build ./...
-
-      - name: install-ui tests with the race detector
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd install-ui
-          go test -race ./...
-
-      - name: Parse the agent harness shell sources
-        shell: bash
-        run: |
-          set -euo pipefail
-          mapfile -t scripts < <(
-            find test/agent test/boot-ux tools -type f -name '*.sh' -print | sort
-          )
-          if (( ${#scripts[@]} == 0 )); then
-            echo "Expected to find agent harness shell scripts" >&2
-            exit 1
-          fi
-          for script in "${scripts[@]}"; do
-            echo "bash -n $script"
-            bash -n "$script"
-          done
-
-      - name: Browser unit tests (hermetic)
-        shell: bash
-        run: |
-          set -euo pipefail
-          # The first-boot Chromium shell unit tests are hermetic -- they drive
-          # the install/persistence/launch logic through a fake flatpak and temp
-          # dirs, no docker or VM -- so they can gate here. (The other
-          # test/agent/*_test.sh are only bash -n parsed above: some need a
-          # built image, and two are pre-existing red on missing fixtures.
-          # browser_units_test.sh is an IMAGE check and runs in build-agent-iso,
-          # not here.)
-          for t in test/agent/browser_install_test.sh \
-                   test/agent/browser_persistence_test.sh \
-                   test/agent/browser_run_test.sh; do
-            echo "== $t"
-            bash "$t"
-          done
-
+  # The agent/ unit tests, the harness shell parse, and the hermetic browser
+  # unit tests run in ci.yml on every pull request; this workflow only builds
+  # the appliance and runs the VM gates on it.
   build-agent-iso:
     name: Build agent image and ISO
-    needs: checks
     runs-on: ubuntu-24.04
     timeout-minutes: 330
     permissions:
@@ -273,11 +167,35 @@ jobs:
           compression-level: 0
           retention-days: 7
 
-  compatibility:
-    name: Native compatibility gate
+  # The five VM gates only consume the image build-agent-iso uploaded, and
+  # each one boots its own VM on its own runner, so they run side by side.
+  # fail-fast is off: one red gate must not cancel the evidence of the others.
+  gates:
+    name: ${{ matrix.name }}
     needs: build-agent-iso
     runs-on: ubuntu-24.04
     timeout-minutes: 330
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Builds only its probe-instrumented test image
+          # (test/agent/Dockerfile.compat) on top of the loaded agent image.
+          - gate: compatibility
+            name: Native compatibility gate
+          # Boots the appliance live against a blank disk and proves the eight
+          # public MCP tools plus the privilege boundaries, without writing to
+          # the attached disk.
+          - gate: contract
+            name: MCP and privilege contract gate
+          - gate: install
+            name: Zero-touch install gate
+          - gate: recovery
+            name: Recovery and emergency pause gate
+          # Drives the GTK reference app and the pinned Chromium Flatpak in the
+          # visible XLibre session through public computer_use only.
+          - gate: ui
+            name: GTK and Chromium UI gate
 
     steps:
       - name: Check out the pull request
@@ -286,8 +204,8 @@ jobs:
           persist-credentials: false
 
       # Standard GitHub-hosted Linux runners expose 14 GB of SSD. Remove large
-      # preinstalled SDKs that this Docker-only build does not use so BuildKit
-      # has room for the source-build stages.
+      # preinstalled SDKs that the gates do not use so the loaded image, the
+      # gate's own ISO, and its VM disks fit.
       - name: Reclaim runner disk space
         shell: bash
         run: |
@@ -328,355 +246,38 @@ jobs:
           go-version-file: agent/go.mod
           cache-dependency-path: agent/go.sum
 
-      # The compatibility gate builds its own probe-instrumented test image
-      # (test/agent/Dockerfile.compat) on top of the agent overlay, so it drives
-      # the full local image chain rather than the exported appliance tag.
-      - name: Run the compatibility gate
+      - name: Download the agent image
+        uses: actions/download-artifact@v8
+        with:
+          name: agent-image
+          path: dist
+
+      - name: Load the agent image
         shell: bash
         run: |
           set -euo pipefail
-          test/agent/run.sh compatibility
+          cd dist
+          sha256sum --check agent-image.tar.zst.sha256
+          zstd -d --stdout agent-image.tar.zst | docker load
+          docker image inspect "$AGENT_IMAGE" >/dev/null
+          # The compressed export is loaded now; free its space for the gate.
+          rm -f agent-image.tar.zst
+
+      - name: Run the ${{ matrix.gate }} gate
+        shell: bash
+        env:
+          GATE: ${{ matrix.gate }}
+        run: |
+          set -euo pipefail
+          test/agent/run.sh "$GATE" "$AGENT_IMAGE"
 
       # Only test/agent/artifacts is ever uploaded. test/agent/runtime holds
       # bearer plaintext, seeds, and descriptors and must never leave the runner.
-      - name: Upload compatibility diagnostics
+      - name: Upload ${{ matrix.gate }} diagnostics
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: agent-diagnostics-compatibility
-          path: test/agent/artifacts/compatibility
-          if-no-files-found: warn
-          retention-days: 7
-
-  contract:
-    name: MCP and privilege contract gate
-    needs: compatibility
-    runs-on: ubuntu-24.04
-    timeout-minutes: 330
-
-    steps:
-      - name: Check out the pull request
-        uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-
-      # Standard GitHub-hosted Linux runners expose 14 GB of SSD. Remove large
-      # preinstalled SDKs that this Docker-only build does not use so BuildKit
-      # has room for the source-build stages.
-      - name: Reclaim runner disk space
-        shell: bash
-        run: |
-          set -euo pipefail
-          sudo rm -rf \
-            /opt/ghc \
-            /opt/hostedtoolcache/CodeQL \
-            /usr/local/.ghcup \
-            /usr/local/lib/android \
-            /usr/share/dotnet
-          docker system prune --all --force
-          df -h /
-
-      - name: Install agent VM dependencies
-        shell: bash
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends \
-            jq \
-            novnc \
-            ovmf \
-            python3-pil \
-            qemu-system-x86 \
-            qemu-utils \
-            websockify \
-            xorriso
-          if [[ -e /dev/kvm ]]; then
-            sudo chmod 0666 /dev/kvm
-          fi
-
-      - name: Set up Go
-        uses: actions/setup-go@v6
-        with:
-          go-version-file: agent/go.mod
-          cache-dependency-path: agent/go.sum
-
-      - name: Download the agent image
-        uses: actions/download-artifact@v8
-        with:
-          name: agent-image
-          path: dist
-
-      - name: Load the agent image
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd dist
-          sha256sum --check agent-image.tar.zst.sha256
-          zstd -d --stdout agent-image.tar.zst | docker load
-          docker image inspect "$AGENT_IMAGE" >/dev/null
-
-      # Boots the appliance live against a blank disk and proves the eight
-      # public MCP tools plus the privilege boundaries, without writing to the
-      # attached disk.
-      - name: Run the contract gate
-        shell: bash
-        run: |
-          set -euo pipefail
-          test/agent/run.sh contract "$AGENT_IMAGE"
-
-      - name: Upload contract diagnostics
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: agent-diagnostics-contract
-          path: test/agent/artifacts/contract
-          if-no-files-found: warn
-          retention-days: 7
-
-  install:
-    name: Zero-touch install gate
-    needs: contract
-    runs-on: ubuntu-24.04
-    timeout-minutes: 330
-
-    steps:
-      - name: Check out the pull request
-        uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-
-      # Standard GitHub-hosted Linux runners expose 14 GB of SSD. Remove large
-      # preinstalled SDKs that this Docker-only build does not use so BuildKit
-      # has room for the source-build stages.
-      - name: Reclaim runner disk space
-        shell: bash
-        run: |
-          set -euo pipefail
-          sudo rm -rf \
-            /opt/ghc \
-            /opt/hostedtoolcache/CodeQL \
-            /usr/local/.ghcup \
-            /usr/local/lib/android \
-            /usr/share/dotnet
-          docker system prune --all --force
-          df -h /
-
-      - name: Install agent VM dependencies
-        shell: bash
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends \
-            jq \
-            novnc \
-            ovmf \
-            python3-pil \
-            qemu-system-x86 \
-            qemu-utils \
-            websockify \
-            xorriso
-          if [[ -e /dev/kvm ]]; then
-            sudo chmod 0666 /dev/kvm
-          fi
-
-      - name: Set up Go
-        uses: actions/setup-go@v6
-        with:
-          go-version-file: agent/go.mod
-          cache-dependency-path: agent/go.sum
-
-      - name: Download the agent image
-        uses: actions/download-artifact@v8
-        with:
-          name: agent-image
-          path: dist
-
-      - name: Load the agent image
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd dist
-          sha256sum --check agent-image.tar.zst.sha256
-          zstd -d --stdout agent-image.tar.zst | docker load
-          docker image inspect "$AGENT_IMAGE" >/dev/null
-
-      - name: Run the install gate
-        shell: bash
-        run: |
-          set -euo pipefail
-          test/agent/run.sh install "$AGENT_IMAGE"
-
-      - name: Upload install diagnostics
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: agent-diagnostics-install
-          path: test/agent/artifacts/install
-          if-no-files-found: warn
-          retention-days: 7
-
-  recovery:
-    name: Recovery and emergency pause gate
-    needs: install
-    runs-on: ubuntu-24.04
-    timeout-minutes: 330
-
-    steps:
-      - name: Check out the pull request
-        uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-
-      # Standard GitHub-hosted Linux runners expose 14 GB of SSD. Remove large
-      # preinstalled SDKs that this Docker-only build does not use so BuildKit
-      # has room for the source-build stages.
-      - name: Reclaim runner disk space
-        shell: bash
-        run: |
-          set -euo pipefail
-          sudo rm -rf \
-            /opt/ghc \
-            /opt/hostedtoolcache/CodeQL \
-            /usr/local/.ghcup \
-            /usr/local/lib/android \
-            /usr/share/dotnet
-          docker system prune --all --force
-          df -h /
-
-      - name: Install agent VM dependencies
-        shell: bash
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends \
-            jq \
-            novnc \
-            ovmf \
-            python3-pil \
-            qemu-system-x86 \
-            qemu-utils \
-            websockify \
-            xorriso
-          if [[ -e /dev/kvm ]]; then
-            sudo chmod 0666 /dev/kvm
-          fi
-
-      - name: Set up Go
-        uses: actions/setup-go@v6
-        with:
-          go-version-file: agent/go.mod
-          cache-dependency-path: agent/go.sum
-
-      - name: Download the agent image
-        uses: actions/download-artifact@v8
-        with:
-          name: agent-image
-          path: dist
-
-      - name: Load the agent image
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd dist
-          sha256sum --check agent-image.tar.zst.sha256
-          zstd -d --stdout agent-image.tar.zst | docker load
-          docker image inspect "$AGENT_IMAGE" >/dev/null
-
-      - name: Run the recovery gate
-        shell: bash
-        run: |
-          set -euo pipefail
-          test/agent/run.sh recovery "$AGENT_IMAGE"
-
-      - name: Upload recovery diagnostics
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: agent-diagnostics-recovery
-          path: test/agent/artifacts/recovery
-          if-no-files-found: warn
-          retention-days: 7
-
-  ui:
-    name: GTK and Chromium UI gate
-    needs: recovery
-    runs-on: ubuntu-24.04
-    timeout-minutes: 330
-
-    steps:
-      - name: Check out the pull request
-        uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-
-      # Standard GitHub-hosted Linux runners expose 14 GB of SSD. Remove large
-      # preinstalled SDKs that this Docker-only build does not use so BuildKit
-      # has room for the source-build stages.
-      - name: Reclaim runner disk space
-        shell: bash
-        run: |
-          set -euo pipefail
-          sudo rm -rf \
-            /opt/ghc \
-            /opt/hostedtoolcache/CodeQL \
-            /usr/local/.ghcup \
-            /usr/local/lib/android \
-            /usr/share/dotnet
-          docker system prune --all --force
-          df -h /
-
-      - name: Install agent VM dependencies
-        shell: bash
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends \
-            jq \
-            novnc \
-            ovmf \
-            python3-pil \
-            qemu-system-x86 \
-            qemu-utils \
-            websockify \
-            xorriso
-          if [[ -e /dev/kvm ]]; then
-            sudo chmod 0666 /dev/kvm
-          fi
-
-      - name: Set up Go
-        uses: actions/setup-go@v6
-        with:
-          go-version-file: agent/go.mod
-          cache-dependency-path: agent/go.sum
-
-      - name: Download the agent image
-        uses: actions/download-artifact@v8
-        with:
-          name: agent-image
-          path: dist
-
-      - name: Load the agent image
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd dist
-          sha256sum --check agent-image.tar.zst.sha256
-          zstd -d --stdout agent-image.tar.zst | docker load
-          docker image inspect "$AGENT_IMAGE" >/dev/null
-
-      # Drives the GTK reference app and the pinned Chromium Flatpak in the
-      # visible XLibre session through public computer_use only.
-      - name: Run the UI gate
-        shell: bash
-        run: |
-          set -euo pipefail
-          test/agent/run.sh ui "$AGENT_IMAGE"
-
-      - name: Upload UI diagnostics
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: agent-diagnostics-ui
-          path: test/agent/artifacts/ui
+          name: agent-diagnostics-${{ matrix.gate }}
+          path: test/agent/artifacts/${{ matrix.gate }}
           if-no-files-found: warn
           retention-days: 7

@@ -14,6 +14,68 @@ permissions:
   contents: read
 
 jobs:
+  # The agent appliance's Go code and its harness checks that need no image.
+  # The image build and the VM gates are in agent-gates.yml.
+  agent:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: agent/go.mod
+          cache-dependency-path: agent/go.sum
+
+      - name: agent formatting
+        working-directory: agent
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [[ -n "$unformatted" ]]; then
+            echo "These files are not gofmt-clean:" >&2
+            echo "$unformatted" >&2
+            exit 1
+          fi
+
+      - name: agent vet, build, and tests with the race detector
+        working-directory: agent
+        run: |
+          go vet ./...
+          go build ./...
+          go test -race ./...
+
+      - name: Agent harness shell sources parse
+        run: |
+          set -euo pipefail
+          mapfile -t scripts < <(
+            find test/agent test/boot-ux tools -type f -name '*.sh' -print | sort
+          )
+          if (( ${#scripts[@]} == 0 )); then
+            echo "Expected to find agent harness shell scripts" >&2
+            exit 1
+          fi
+          for script in "${scripts[@]}"; do
+            echo "bash -n $script"
+            bash -n "$script"
+          done
+
+      # The first-boot Chromium shell unit tests are hermetic: they drive the
+      # install/persistence/launch logic through a fake flatpak and temp dirs,
+      # no docker or VM. The other test/agent/*_test.sh are only parsed above:
+      # some need a built image. browser_units_test.sh is an image check and
+      # runs in agent-gates.yml after the build.
+      - name: Agent browser unit tests (hermetic)
+        run: |
+          set -euo pipefail
+          for t in test/agent/browser_install_test.sh \
+                   test/agent/browser_persistence_test.sh \
+                   test/agent/browser_run_test.sh; do
+            echo "== $t"
+            bash "$t"
+          done
+
   unit:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -41,7 +103,9 @@ jobs:
 
       - name: install-ui tests
         working-directory: install-ui
-        run: go vet ./... && go test ./...
+        run: |
+          test -z "$(gofmt -l .)"
+          go vet ./... && go test -race ./...
 
       # The graphical installer needs cgo and, for its screenshot tests,
       # Mesa's software renderer (llvmpipe) behind EGL's surfaceless

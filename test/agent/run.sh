@@ -14,6 +14,11 @@
 #
 # Usage:
 #   test/agent/run.sh compatibility     # full build + boot + compare
+#   test/agent/run.sh compatibility IMAGE
+#                                       # build only the compat test image on
+#                                       # top of an already-built agent IMAGE
+#                                       # (e.g. agent-desktop:dev from
+#                                       # `make agent-image`), then boot + compare
 #   SKIP_BUILD=1 ...                    # reuse the already-built images
 #   SKIP_ISO=1   ...                    # reuse the already-built ISO
 #   KEEP=1       ...                    # keep the per-run scratch (disk, sock, vars)
@@ -32,8 +37,10 @@ err() { echo -e "\033[1;31m[compat] $*\033[0m" >&2; }
 # --- subcommand dispatch -----------------------------------------------------
 SUBCOMMAND="${1:-}"
 usage() {
-  err "usage: $0 <compatibility|contract [IMAGE]|install [IMAGE]|generic [ISO]|fixture [IMAGE]|stop>"
-  err "  compatibility    build + boot the graphical QEMU compatibility gate"
+  err "usage: $0 <compatibility [IMAGE]|contract [IMAGE]|install [IMAGE]|generic [ISO]|fixture [IMAGE]|stop>"
+  err "  compatibility [IMAGE]"
+  err "                   build + boot the graphical QEMU compatibility gate; with"
+  err "                   IMAGE, reuse that agent image and build only the compat layer"
   err "  contract [IMAGE] NON-DESTRUCTIVE live gate: boot the agent live against a"
   err "                   blank disk (proven unwritten) and run the mcp-smoke contract"
   err "  install [IMAGE]  zero-touch install gate: build a provisioning ISO, auto-install,"
@@ -1735,8 +1742,15 @@ _agent_require_bins qemu-system-x86_64 qemu-img openssl curl python3 docker sha2
 # make DESKTOP=i3 image  => i3-desktop:dev  (IMAGE defaults to $(DESKTOP)-desktop:dev)
 # Dockerfile.agent --target agent, BASE_IMAGE=i3-desktop:dev => isotope-agent:compat
 # test/agent/Dockerfile.compat (final `test` stage), BASE_IMAGE=isotope-agent:compat
+#
+# With an IMAGE argument (`run.sh compatibility agent-desktop:dev`), that
+# already-built agent image replaces the first two links: CI passes the image
+# `make agent-iso` built, so the i3 and agent layers are not built a second
+# time. Only the argument selects this, not the AGENT_IMAGE environment
+# variable, so a bare local `run.sh compatibility` still builds the whole chain.
+COMPAT_BASE_IMAGE="${2:-}"
 I3_IMAGE="i3-desktop:dev"
-AGENT_IMAGE="isotope-agent:compat"
+AGENT_IMAGE="${COMPAT_BASE_IMAGE:-isotope-agent:compat}"
 COMPAT_IMAGE="isotope-agent-compat:test"
 AURORA_IMAGE="${AURORA_IMAGE:-quay.io/kairos/auroraboot:v0.21.0-alpha.4}"
 
@@ -1767,15 +1781,21 @@ VNC_DISPLAY="${VNC_DISPLAY:-19}"            # 127.0.0.1:19 -> TCP 5919
 # 1. Build the image chain: i3 desktop -> agent overlay -> compat test image
 # ---------------------------------------------------------------------------
 if [ "${SKIP_BUILD:-0}" != "1" ]; then
-  log "Building i3 desktop image ($I3_IMAGE)"
-  make -C "$REPO_ROOT" DESKTOP=i3 image \
-    || { err "i3 desktop image build failed"; exit 10; }
+  if [ -n "$COMPAT_BASE_IMAGE" ]; then
+    log "Reusing agent image $AGENT_IMAGE (no i3 or agent overlay build)"
+    docker image inspect "$AGENT_IMAGE" >/dev/null 2>&1 \
+      || { err "agent image $AGENT_IMAGE does not exist locally"; exit 11; }
+  else
+    log "Building i3 desktop image ($I3_IMAGE)"
+    make -C "$REPO_ROOT" DESKTOP=i3 image \
+      || { err "i3 desktop image build failed"; exit 10; }
 
-  log "Building agent overlay ($AGENT_IMAGE, Dockerfile.agent --target agent)"
-  docker build -f "$REPO_ROOT/Dockerfile.agent" --target agent \
-    --build-arg BASE_IMAGE="$I3_IMAGE" \
-    -t "$AGENT_IMAGE" "$REPO_ROOT" \
-    || { err "agent overlay build failed"; exit 11; }
+    log "Building agent overlay ($AGENT_IMAGE, Dockerfile.agent --target agent)"
+    docker build -f "$REPO_ROOT/Dockerfile.agent" --target agent \
+      --build-arg BASE_IMAGE="$I3_IMAGE" \
+      -t "$AGENT_IMAGE" "$REPO_ROOT" \
+      || { err "agent overlay build failed"; exit 11; }
+  fi
 
   log "Building compat test image ($COMPAT_IMAGE, test/agent/Dockerfile.compat)"
   docker build -f "$REPO_ROOT/test/agent/Dockerfile.compat" \
