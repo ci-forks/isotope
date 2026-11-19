@@ -17,7 +17,8 @@
 # Mesa's own libGL.so.1 (GLX for XLibre). On every image, gl-probe.c makes a
 # desktop GL context on llvmpipe (EGL surfaceless platform, no GPU and no
 # display needed) and calls glGetString through libepoxy, and does the same
-# with an OpenGL ES 2 context, which the compositors render with.
+# with an OpenGL ES 2 context, which the compositors render with. The probes
+# run as root and as an unprivileged user.
 #
 # The probe is compiled with the Hadron toolchain the image is built with
 # (Dockerfile.probe); it needs only libc.
@@ -56,22 +57,34 @@ case "$flavor" in
             'grep -q "\"library_path\" *: *\"libEGL_mesa.so.0\"" /usr/share/glvnd/egl_vendor.d/50_mesa.json'
         check "libEGL.so.1 is glvnd's, not a second Mesa libEGL" \
             'ldd /usr/lib/libEGL.so.1 | grep -q libGLdispatch.so.0'
+        # glvnd reads the vendor files as the session user (cosmic-greeter,
+        # the desktop user): with a directory that only root can enter it
+        # finds no vendor, and the compositor gets no EGL platform.
+        check "the glvnd vendor directories and file are world-readable" \
+            'for d in /usr/share/glvnd /usr/share/glvnd/egl_vendor.d; do
+                 case "$(stat -c %A "$d")" in d??????r?x) ;; *) exit 1 ;; esac
+             done
+             case "$(stat -c %A /usr/share/glvnd/egl_vendor.d/50_mesa.json)" in
+                 -??????r??) ;; *) exit 1 ;;
+             esac'
         ;;
 esac
 
 tmp="$(mktemp -d)"
+chmod 755 "$tmp" # the unprivileged probe run must reach it
 trap 'rm -rf "$tmp"' EXIT
 hadron="$(awk -F= '/^ARG HADRON_VERSION=/{print $2; exit}' "$REPO/Dockerfile")"
 if ! docker build -q --build-arg HADRON_VERSION="$hadron" -f "$HERE/Dockerfile.probe" \
         --output "type=local,dest=$tmp" "$HERE" >/dev/null; then
     echo "FAIL: could not build gl-probe"; exit 1
 fi
-probe() { # DESC [gles]: run gl-probe on llvmpipe in the image
-    local desc="$1" out rc
-    shift
+probe() { # DESC USER [gles]: run gl-probe on llvmpipe in the image as USER
+    local desc="$1" user="$2" out rc
+    shift 2
     set +e
-    out="$(docker run --rm --entrypoint /probe/gl-probe -v "$tmp:/probe:ro" \
-        -e EGL_PLATFORM=surfaceless -e LIBGL_ALWAYS_SOFTWARE=1 "$IMAGE" "$@" 2>&1)"
+    out="$(docker run --rm --user "$user" --entrypoint /probe/gl-probe -v "$tmp:/probe:ro" \
+        -e EGL_PLATFORM=surfaceless -e LIBGL_ALWAYS_SOFTWARE=1 \
+        -e MESA_SHADER_CACHE_DISABLE=true "$IMAGE" "$@" 2>&1)"
     rc=$?
     set -e
     printf '%s\n' "$out" | while IFS= read -r l; do echo "    $l"; done
@@ -81,6 +94,10 @@ probe() { # DESC [gles]: run gl-probe on llvmpipe in the image
         echo "FAIL: $desc (exit $rc)"; fail=1
     fi
 }
-probe "an OpenGL ES 2 context through EGL and libepoxy answers glGetString" gles
-probe "a desktop GL context through EGL and libepoxy answers glGetString"
+# As root, and as an unprivileged user (65534, nobody), like the greeter and
+# the desktop session: a GL file that only root can read fails only there.
+for user in 0:0 65534:65534; do
+    probe "an OpenGL ES 2 context through EGL and libepoxy answers glGetString (uid ${user%%:*})" "$user" gles
+    probe "a desktop GL context through EGL and libepoxy answers glGetString (uid ${user%%:*})" "$user"
+done
 exit $fail
