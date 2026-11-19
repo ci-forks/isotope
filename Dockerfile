@@ -5185,14 +5185,8 @@ RUN chmod 1777 /tmp; \
     # installer's boot masks it in /run (Kairos' 52_installer.yaml). A static
     # mask here left tty1 with no login at all when the login screen does not
     # run, and broke Kairos' own `systemctl enable getty@tty1` at every boot.
-    # NetworkManager is the network manager. The Hadron base enables
-    # systemd-networkd too, so both ran a DHCP client on the wired card, and
-    # systemd-networkd-wait-online (which cannot see Wi-Fi) held
-    # network-online.target for its 120 s timeout on every Wi-Fi or unplugged
-    # boot. NetworkManager-wait-online stays the one network-online waiter.
-    systemctl disable systemd-networkd.service systemd-networkd.socket \
-      systemd-networkd-wait-online.service 2>/dev/null || true; \
-    ! ls /etc/systemd/system/*.wants/systemd-networkd* 2>/dev/null | grep -q . || exit 1; \
+    # NetworkManager is the network manager. systemd-networkd is disabled in
+    # the kairos stage, after kairos-init, which enables it.
     systemctl enable NetworkManager.service wpa_supplicant.service 2>/dev/null || true; \
     test -L /etc/systemd/system/network-online.target.wants/NetworkManager-wait-online.service || exit 1; \
     # M3: PipeWire + WirePlumber as per-user services
@@ -5296,11 +5290,8 @@ RUN chmod 1777 /tmp; \
     for d in /etc/polkit-1/rules.d /usr/share/polkit-1/rules.d; do \
       mkdir -p "$d" && chown polkitd:root "$d" && chmod 700 "$d"; \
     done; \
-    # NetworkManager only, as on the desktop: no systemd-networkd running a
-    # second DHCP client on the same card.
-    systemctl disable systemd-networkd.service systemd-networkd.socket \
-      systemd-networkd-wait-online.service 2>/dev/null || true; \
-    ! ls /etc/systemd/system/*.wants/systemd-networkd* 2>/dev/null | grep -q . || exit 1; \
+    # NetworkManager only, as on the desktop. systemd-networkd is disabled in
+    # the kairos stage, after kairos-init, which enables it.
     systemctl enable NetworkManager.service; \
     test -L /etc/systemd/system/multi-user.target.wants/NetworkManager.service && \
     test -L /etc/systemd/system/network-online.target.wants/NetworkManager-wait-online.service
@@ -5359,6 +5350,16 @@ RUN --mount=type=bind,from=kairos-init,src=/kairos-init,dst=/kairos-init \
     fips_flag=""; [ "$FIPS" = "fips" ] && fips_flag="--fips"; \
     /kairos-init -l debug -s install -m "${MODEL}" -t "${TRUSTED_BOOT}" --version "${VERSION}" $fips_flag && \
     /kairos-init -l debug -s init    -m "${MODEL}" -t "${TRUSTED_BOOT}" --version "${VERSION}" $fips_flag
+# NetworkManager is the only network manager. kairos-init's "Enable services
+# for Hadron" step runs `systemctl enable systemd-networkd`, so this must come
+# after it: a disable in the edition stages was undone here. With both enabled,
+# two DHCP clients ran on the wired card, and systemd-networkd-wait-online
+# (which cannot see Wi-Fi) held network-online.target for its 120 s timeout on
+# every Wi-Fi or unplugged boot. NetworkManager-wait-online stays the one
+# network-online waiter. test/boot-ux/check-boot-units.sh checks the result.
+RUN systemctl disable systemd-networkd.service systemd-networkd.socket \
+      systemd-networkd-wait-online.service 2>/dev/null || true; \
+    ! ls /etc/systemd/system/*.wants/systemd-networkd* 2>/dev/null | grep -q .
 # No default `kairos` user on an installed system. kairos-init's
 # 10_accounting.yaml creates a locked one on every boot, and COSMIC's greeter
 # lists it as "Created by entities". Keep it on the live ISO and in UKI install
