@@ -720,13 +720,14 @@ jobs:
       # nightly.
       # --------------------------------------------------------------------
 
-      # Builds its own probe-instrumented test image (test/agent/Dockerfile.compat)
-      # on top of the agent overlay, so it drives the full local image chain.
+      # Builds only its probe-instrumented test image
+      # (test/agent/Dockerfile.compat) on top of the appliance image built
+      # above; the i3 and agent layers are not built again.
       - name: Gate - native compatibility
         shell: bash
         run: |
           set -euo pipefail
-          test/agent/run.sh compatibility
+          test/agent/run.sh compatibility "$AGENT_IMAGE"
 
       # Boots the appliance live against a blank disk and proves the eight
       # public MCP tools plus the privilege boundaries, without writing to the

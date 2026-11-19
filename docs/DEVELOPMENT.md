@@ -356,7 +356,8 @@ harness parses them and exits non-zero on any failure. Screenshots captured with
 
 The `test/agent/` directory holds the agent overlay's own test suite
 (`run.sh compatibility` boots the real graphical XLibre/i3 session in QEMU and
-drives it with `cua-driver`; focused scripts like `systemd_units_test.sh` and
+drives it with `cua-driver`; `run.sh compatibility agent-desktop:dev` reuses an
+image from `make agent-image` and builds only the test layer; focused scripts like `systemd_units_test.sh` and
 `session_launcher_test.sh` check narrower slices statically). Notably,
 `profile_isolation.sh` builds (or, with `SKIP_BUILD=1`, reuses) all three
 images — `sway-desktop:dev`, `i3-desktop:dev`, `agent-desktop:dev` — exports
