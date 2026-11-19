@@ -42,6 +42,9 @@ check "no desktop scripts" "! ls /usr/bin/isotope-menu /usr/bin/isotope-pick /us
 check "no ly unit or session" "! test -e /usr/lib/systemd/system/ly@.service && ! test -d /usr/share/wayland-sessions"
 check "tty1 has a console login (getty not masked)" \
     "! test -L /etc/systemd/system/getty@tty1.service"
+# Boot ordering shared with the desktops: no boot stage waits for the
+# network, NetworkManager alone manages it, getty@tty1 is enabled.
+"$(dirname "$0")/../boot-ux/check-boot-units.sh" "$IMAGE" || fail=1
 
 # What it keeps.
 libs "NetworkManager finds its libraries" /usr/bin/NetworkManager
@@ -86,7 +89,7 @@ check "the docker socket belongs to the docker group" \
 check "docker is not enabled in the image" \
     "! test -e /etc/systemd/system/multi-user.target.wants/docker.service && ! test -e /etc/systemd/system/sockets.target.wants/docker.socket"
 check "the boot stage persists /var/lib/docker and starts docker after install" \
-    "grep -q 'CUSTOM_BIND_MOUNTS: \"/var/lib/docker\"' /system/oem/92_docker.yaml && grep -q 'live_mode' /system/oem/92_docker.yaml && grep -q 'systemctl start docker.service' /system/oem/92_docker.yaml"
+    "grep -q 'CUSTOM_BIND_MOUNTS: \"/var/lib/docker\"' /system/oem/92_docker.yaml && grep -q 'live_mode' /system/oem/92_docker.yaml && grep -q 'systemctl start --no-block docker.socket docker.service' /system/oem/92_docker.yaml"
 check "iptables is installed" "command -v iptables"
 check "the container kernel modules are present" \
     "k=\$(ls /lib/modules) && for m in overlay bridge br_netfilter veth nf_nat xt_MASQUERADE; do find /lib/modules/\$k -name \"\$m.ko*\" | grep -q . || exit 1; done"
