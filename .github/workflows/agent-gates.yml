@@ -2,6 +2,9 @@ name: Agent Gates
 
 on:
   pull_request:
+    # A pull request that touches none of these never starts this workflow.
+    # Dockerfile and Makefile are shared with the desktops, so the scope job
+    # below then decides whether the change reaches the agent at all.
     paths:
       - "agent/**"
       - "rootfs-agent/**"
@@ -35,11 +38,73 @@ env:
   AGENT_IMAGE: agent-desktop:dev
 
 jobs:
+  # Agent Gates takes about three hours, and most Dockerfile and Makefile
+  # changes are desktop-only (sway, cosmic, niri). On a pull request, compare
+  # scripts/agent-input-key.sh of the merge commit with that of its base: the
+  # key hashes the `make agent-iso` commands, the Dockerfile stages the i3
+  # image reaches, the agent stage of Dockerfile.agent, the files those stages
+  # read, and the gate harness. The same key means the same agent image and
+  # the same gates, so the build and the gates are skipped (a job skipped by
+  # its `if:` reports success). The nightly schedule and a manual dispatch
+  # always run everything, and so does any failure to compute a key.
+  scope:
+    name: Decide whether the agent changed
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      run: ${{ steps.decide.outputs.run }}
+    steps:
+      - name: Check out the pull request
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          # The merge commit and its parents: HEAD^1 is the base branch.
+          fetch-depth: 2
+
+      - name: Compare the agent input keys
+        id: decide
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          decide() {
+            echo "run=$1" >> "$GITHUB_OUTPUT"
+            echo "$2"
+            echo "$2" >> "$GITHUB_STEP_SUMMARY"
+          }
+          if [[ "$EVENT" != pull_request ]]; then
+            decide true "Running every gate: $EVENT event."
+            exit 0
+          fi
+          # A pull_request checkout is the merge commit of the pull request
+          # into its base; without a second parent there is no base to compare.
+          if ! git rev-parse --verify --quiet HEAD^2 >/dev/null; then
+            decide true "Running every gate: HEAD is not a merge commit."
+            exit 0
+          fi
+          base_tree="$RUNNER_TEMP/base"
+          git worktree add --detach "$base_tree" HEAD^1
+          # This tree's key script computes both keys, so a change to the
+          # script itself does not count as an agent change.
+          if ! base_key="$(scripts/agent-input-key.sh "$base_tree")" \
+             || ! head_key="$(scripts/agent-input-key.sh .)"; then
+            decide true "Running every gate: could not compute the agent input key."
+            exit 0
+          fi
+          if [[ "$base_key" == "$head_key" ]]; then
+            decide false "Skipping the agent build and gates: the agent inputs did not change ($head_key)."
+          else
+            decide true "Running every gate: the agent inputs changed ($base_key -> $head_key)."
+          fi
+
   # The agent/ unit tests, the harness shell parse, and the hermetic browser
   # unit tests run in ci.yml on every pull request; this workflow only builds
   # the appliance and runs the VM gates on it.
   build-agent-iso:
     name: Build agent image and ISO
+    needs: scope
+    if: needs.scope.outputs.run == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 330
     permissions:
@@ -281,3 +346,32 @@ jobs:
           path: test/agent/artifacts/${{ matrix.gate }}
           if-no-files-found: warn
           retention-days: 7
+
+  # One check with a fixed name that sums up the run, for a branch rule to
+  # require: it passes when the build and every gate passed, or when the scope
+  # job skipped them all. The matrix checks have no stable name when skipped,
+  # and a pull request that matches none of the `paths:` above gets no check
+  # at all, so require this one only together with a rule that allows that.
+  result:
+    name: Agent Gates result
+    needs: [scope, build-agent-iso, gates]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check the build and the gates
+        shell: bash
+        env:
+          SCOPE: ${{ needs.scope.result }}
+          RUN: ${{ needs.scope.outputs.run }}
+          BUILD: ${{ needs.build-agent-iso.result }}
+          GATES: ${{ needs.gates.result }}
+        run: |
+          set -euo pipefail
+          echo "scope=$SCOPE run=$RUN build=$BUILD gates=$GATES"
+          [[ "$SCOPE" == success ]] || { echo "the scope job did not succeed" >&2; exit 1; }
+          if [[ "$RUN" == true ]]; then
+            [[ "$BUILD" == success && "$GATES" == success ]] || { echo "the agent build or a gate did not pass" >&2; exit 1; }
+          else
+            [[ "$BUILD" == skipped && "$GATES" == skipped ]] || { echo "expected the build and the gates to be skipped" >&2; exit 1; }
+          fi
