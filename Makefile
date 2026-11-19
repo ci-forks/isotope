@@ -239,8 +239,9 @@ vm:                   ## boot the already-installed disk
 # initramfs, installer and default-user checks and test/server/check-server.sh.
 #
 # Boot-UX assertions (splash, initramfs, branding, ISO overlay), the update
-# tray wiring (test/update/check-tray-wiring.sh) and the live-only default
-# user (test/accounting/check-default-user.sh) for every variant image that
+# tray wiring (test/update/check-tray-wiring.sh), the live-only default
+# user (test/accounting/check-default-user.sh) and desktop OpenGL through
+# EGL (test/graphics/check-desktop-gl.sh) for every variant image that
 # is already built locally. Deliberately NOT a dependency of `all`:
 # the checks inspect a built image, so wiring them into a plain `make` would
 # either fail before the image exists or force a rebuild. Run them after
@@ -264,6 +265,7 @@ check-boot-ux:
 	    test/boot-ux/run.sh "$$img" "$$subtitle" || fail=1; \
 	    test/update/check-tray-wiring.sh "$$img" "$${img%%-desktop:*}" || fail=1; \
 	    test/accounting/check-default-user.sh "$$img" || fail=1; \
+	    test/graphics/check-desktop-gl.sh "$$img" || fail=1; \
 	  else \
 	    echo "==> boot-ux: skipping $$img (not built)"; \
 	  fi; \

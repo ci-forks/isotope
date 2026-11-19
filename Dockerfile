@@ -217,8 +217,40 @@ COPY --from=llvm /llvm /llvm-out
 FROM llvm-stack-${GPU} AS llvm-stack
 
 
+# libglvnd, the GL vendor-neutral dispatch libraries: libEGL.so.1,
+# libGLESv1_CM.so.1, libGLESv2.so.2 and libOpenGL.so.0, which forward to
+# Mesa's libEGL_mesa.so.0 through /usr/share/glvnd/egl_vendor.d/50_mesa.json.
+# libOpenGL.so.0 is the desktop GL library without GLX. libepoxy dlopens it
+# for the GL entry points of a desktop GL context made through EGL, and
+# aborts with "Couldn't open libGL.so.1 or libOpenGL.so.0" when it is
+# missing: that is Xwayland's glamor on a real GPU, which then leaves the
+# COSMIC greeter as a cursor on a black screen. The Wayland images have no
+# GLX, so glvnd is built without X11 and GLX. The tag tarball is checked
+# against a SHA256 computed when pinned; a version bump must update
+# LIBGLVND_SHA256 too. test/graphics/check-desktop-gl.sh checks the result.
+FROM toolchain AS libglvnd
+# renovate: datasource=gitlab-tags depName=glvnd/libglvnd registryUrl=https://gitlab.freedesktop.org extractVersion=^v(?<version>\d+(\.\d+)*)$
+ARG LIBGLVND_VERSION=1.7.0
+ARG LIBGLVND_SHA256=2b6e15b06aafb4c0b6e2348124808cbd9b291c647299eaaba2e3202f51ff2f3d
+RUN mkdir -p /libglvnd
+WORKDIR /build
+RUN curl --retry 5 --retry-delay 3 --retry-all-errors -fL https://gitlab.freedesktop.org/glvnd/libglvnd/-/archive/v${LIBGLVND_VERSION}/libglvnd-v${LIBGLVND_VERSION}.tar.gz -o libglvnd.tar.gz && \
+    echo "${LIBGLVND_SHA256}  libglvnd.tar.gz" | sha256sum -c - && \
+    tar -xf libglvnd.tar.gz && rm libglvnd.tar.gz && mv libglvnd-* libglvnd-src
+WORKDIR /build/libglvnd-src
+RUN pip3 install meson ninja
+RUN meson setup buildDir ${COMMON_MESON_FLAGS} -Dx11=disabled -Dglx=disabled \
+      -Degl=true -Dgles1=true -Dgles2=true -Dheaders=true
+RUN DESTDIR=/libglvnd ninja -C buildDir install
+
+
 FROM toolchain AS mesa
 COPY --from=libdrm /libdrm /
+# Mesa is a glvnd vendor: it installs libEGL_mesa.so.0 and the vendor file,
+# and glvnd's libraries go into /mesa with it, so every stage and image that
+# takes /mesa gets the whole GL stack.
+COPY --from=libglvnd /libglvnd /
+COPY --from=libglvnd /libglvnd /mesa
 # LLVM stack: LLVM for GPU=vm, LLVM + libclc + SPIRV for GPU=full.
 COPY --from=llvm-stack /llvm-out /llvm-out
 RUN rsync -aHAX --keep-dirlinks /llvm-out/. / && rm -rf /llvm-out
@@ -253,6 +285,7 @@ RUN if [ "$GPU" = "full" ]; then \
     meson setup buildDir ${COMMON_MESON_FLAGS} -Dplatforms=wayland \
     -Dgallium-drivers="$DRV" \
     -Dglx=disabled \
+    -Dglvnd=enabled \
     -Dopengl=true \
     -Dgles1=enabled \
     -Dgles2=enabled \
