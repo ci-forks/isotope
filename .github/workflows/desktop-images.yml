@@ -1,0 +1,221 @@
+name: Desktop Images
+
+# Build the desktop images a pull request changes and run the image checks
+# that release.yml runs on them before it makes the ISO. Before this workflow,
+# only release.yml built the sway, cosmic and niri images, so a desktop
+# regression such as #100 (Mesa without glvnd: no libOpenGL.so.0, Xwayland
+# aborted, an empty COSMIC greeter on real hardware) was found only at release
+# time. No ISO is made here.
+#
+# Cost: the long stages are not compiled here. LLVM (about three hours) and the
+# two COSMIC halves (about two and a half hours each) come from the images that
+# release.yml prebuilds and pushes to GHCR, tagged by a hash of their inputs
+# (`make print-llvm-tag`, `make print-stage-key`). The other stages come from
+# the registry build cache that release.yml writes for each line. All of them
+# are public, so this workflow only pulls them: no login and no push, also for
+# a pull request from a fork. When the prebuilt image for this tree does not
+# exist (the pull request changes the LLVM stage, a COSMIC input or the Hadron
+# release, or that release has not been built yet), the desktop is skipped with
+# a warning and a note in the job summary instead of compiling it for hours.
+# The release then builds and checks it as before.
+
+on:
+  pull_request:
+    # Keep in sync with the rules in the plan job below.
+    paths:
+      - "Dockerfile"
+      - "Makefile"
+      - "rootfs/**"
+      - "rootfs-sway/**"
+      - "rootfs-cosmic/**"
+      - "rootfs-niri/**"
+      - "rootfs-i3/**"
+      - "patches/**"
+      - "tools/cosmic-build.sh"
+      - "tools/stage-key.py"
+      - "test/graphics/**"
+      - "scripts/ci-containerd-store.sh"
+      - ".github/workflows/desktop-images.yml"
+  workflow_dispatch:
+    inputs:
+      desktops:
+        description: Space-separated desktops to build and check
+        required: false
+        default: "sway cosmic niri i3"
+        type: string
+
+concurrency:
+  group: desktop-images-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # Pick the desktops whose inputs the pull request changes. A change to a
+  # shared input (Dockerfile, Makefile, rootfs/, the GL check, this workflow)
+  # builds all four; a change only under rootfs-<desktop>/ builds that one.
+  plan:
+    name: Pick desktops
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      desktops: ${{ steps.pick.outputs.desktops }}
+    steps:
+      - name: Pick the desktops to build
+        id: pick
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          INPUT_DESKTOPS: ${{ inputs.desktops }}
+        run: |
+          set -euo pipefail
+          all=(sway cosmic niri i3)
+          declare -A want=()
+          if [[ "$EVENT" == pull_request ]]; then
+            mapfile -t files < <(gh api --paginate \
+              "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/files" --jq '.[].filename')
+            for f in "${files[@]}"; do
+              case "$f" in
+                Dockerfile|Makefile|rootfs/*|test/graphics/*|tools/stage-key.py|\
+                scripts/ci-containerd-store.sh|.github/workflows/desktop-images.yml)
+                  for d in "${all[@]}"; do want[$d]=1; done ;;
+                rootfs-sway/*) want[sway]=1 ;;
+                rootfs-cosmic/*|tools/cosmic-build.sh) want[cosmic]=1 ;;
+                rootfs-niri/*) want[niri]=1 ;;
+                # The only patch today is i3lock's; any other patch builds all.
+                rootfs-i3/*|patches/i3lock-*) want[i3]=1 ;;
+                patches/*) for d in "${all[@]}"; do want[$d]=1; done ;;
+              esac
+            done
+          else
+            for d in ${INPUT_DESKTOPS:-${all[*]}}; do
+              case " ${all[*]} " in
+                *" $d "*) want[$d]=1 ;;
+                *) echo "unknown desktop '$d'; choose from: ${all[*]}" >&2; exit 1 ;;
+              esac
+            done
+          fi
+          picked=()
+          for d in "${all[@]}"; do [[ -n "${want[$d]:-}" ]] && picked+=("$d"); done
+          json="$(printf '%s\n' "${picked[@]}" | jq -R . | jq -cs 'map(select(. != ""))')"
+          echo "desktops=$json" >> "$GITHUB_OUTPUT"
+          echo "Desktops to build: $json" | tee -a "$GITHUB_STEP_SUMMARY"
+
+  # GPU=full FIRMWARE=true, the line release.yml publishes as <flavor>-<tag>
+  # for real machines. Its glvnd libraries are the same as on the vm line, but
+  # its Mesa driver also links libelf and SPIRV-Tools for the hardware drivers,
+  # and #100 showed on real hardware only. With the same arguments as the
+  # release, the build reads the release's own cache (buildcache-<flavor>-full).
+  image:
+    name: ${{ matrix.desktop }} image (full)
+    needs: plan
+    if: needs.plan.outputs.desktops != '[]'
+    runs-on: ubuntu-24.04
+    # The same budget as the release build of one variant. With the prebuilt
+    # LLVM and COSMIC images and a current cache, a build takes from about 15
+    # minutes (i3) to about 70 (niri); a change early in the Dockerfile
+    # rebuilds every stage after it.
+    timeout-minutes: 330
+    strategy:
+      fail-fast: false
+      matrix:
+        desktop: ${{ fromJSON(needs.plan.outputs.desktops) }}
+    env:
+      DESKTOP: ${{ matrix.desktop }}
+      GPU: full
+      FIRMWARE: "true"
+      IMAGE_REPO: ghcr.io/${{ github.repository }}
+      # Read only: CACHE_PUSH stays unset, so nothing is written back.
+      CACHE_REF: ghcr.io/${{ github.repository }}:buildcache
+
+    steps:
+      - name: Check out the pull request
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # Before anything slow: without these images the build would compile
+      # LLVM (and for cosmic, COSMIC) itself, for many hours.
+      - name: Find the prebuilt LLVM and COSMIC images
+        id: prebuilt
+        shell: bash
+        run: |
+          set -euo pipefail
+          refs=("LLVM_IMAGE=${IMAGE_REPO}:$(make -s print-llvm-tag)")
+          if [[ "$DESKTOP" == cosmic ]]; then
+            for part in shell apps; do
+              refs+=("COSMIC_${part^^}_IMAGE=${IMAGE_REPO}:$(make -s STAGE="cosmic-$part" print-stage-key)")
+            done
+          fi
+          missing=()
+          for r in "${refs[@]}"; do
+            image="${r#*=}"
+            if docker buildx imagetools inspect "$image" >/dev/null 2>&1; then
+              echo "Using $image"
+              echo "$r" >> "$GITHUB_ENV"
+            else
+              missing+=("$image")
+            fi
+          done
+          if (( ${#missing[@]} )); then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::warning::${DESKTOP} image not built: no prebuilt ${missing[*]}"
+            {
+              echo "### ${DESKTOP}: skipped, not checked"
+              echo
+              echo "No prebuilt image for this tree:"
+              echo
+              printf -- "- \`%s\`\n" "${missing[@]}"
+              echo
+              echo "The image tag is a hash of the stage's inputs, so this pull request"
+              echo "changes the LLVM stage, a COSMIC input or the Hadron release, or no"
+              echo "release has built this tree yet. Compiling it here would take hours;"
+              echo "release.yml builds it and runs the same checks."
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Standard GitHub-hosted Linux runners expose 14 GB of SSD. Remove large
+      # preinstalled SDKs that this Docker-only build does not use so BuildKit
+      # has room for the source-build stages.
+      - name: Reclaim runner disk space
+        if: steps.prebuilt.outputs.skip != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo rm -rf \
+            /opt/ghc \
+            /opt/hostedtoolcache/CodeQL \
+            /usr/local/.ghcup \
+            /usr/local/lib/android \
+            /usr/share/dotnet
+          docker system prune --all --force
+          df -h /
+
+      - name: Use the containerd image store
+        if: steps.prebuilt.outputs.skip != 'true'
+        shell: bash
+        run: scripts/ci-containerd-store.sh
+
+      - name: Build the ${{ matrix.desktop }} image
+        if: steps.prebuilt.outputs.skip != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          make DESKTOP="$DESKTOP" GPU="$GPU" FIRMWARE="$FIRMWARE" image
+          df -h /
+
+      # Desktop OpenGL through EGL and libepoxy, as Xwayland's glamor uses it
+      # on a real GPU: without libOpenGL.so.0 (glvnd) libepoxy aborts. The same
+      # step as in release.yml.
+      - name: Check desktop OpenGL
+        if: steps.prebuilt.outputs.skip != 'true'
+        shell: bash
+        run: test/graphics/check-desktop-gl.sh "${DESKTOP}-desktop:dev"
