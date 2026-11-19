@@ -236,7 +236,8 @@ vm:                   ## boot the already-installed disk
 	tools/vm.sh run
 
 # The server edition has no login screen, wallpaper or tray, so it gets the
-# initramfs, installer and default-user checks and test/server/check-server.sh.
+# initramfs, installer, device and default-user checks and
+# test/server/check-server.sh.
 #
 # Boot-UX assertions (splash, initramfs, branding, ISO overlay), the update
 # tray wiring (test/update/check-tray-wiring.sh), the live-only default
@@ -275,6 +276,7 @@ check-boot-ux:
 	  ran=1; \
 	  test/boot-ux/check-initramfs.sh server-desktop:dev || fail=1; \
 	  test/boot-ux/check-installer.sh server-desktop:dev || fail=1; \
+	  test/boot-ux/check-devices.sh server-desktop:dev || fail=1; \
 	  test/server/check-server.sh server-desktop:dev || fail=1; \
 	  test/accounting/check-default-user.sh server-desktop:dev || fail=1; \
 	else \

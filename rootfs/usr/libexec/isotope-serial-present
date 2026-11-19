@@ -1,0 +1,25 @@
+#!/bin/sh
+# Exit 0 when the serial port TTY has a UART behind it, 1 when it does not.
+# serial-getty@.service runs this as its ExecCondition, so systemd skips the
+# getty on a port that has no hardware instead of restarting it for ever.
+#
+#   isotope-serial-present TTY [SYSFS_TTY_DIR]
+#
+# The kernel always registers ttyS0 to ttyS3 for the legacy 8250 ports, also on
+# a computer that has none. A port with no UART has type 0 (PORT_UNKNOWN) in
+# sysfs. agetty cannot read its settings ("failed to get terminal attributes:
+# I/O error"), waits 10 seconds, and exits; Restart=always then starts it again
+# all the time the system is up. This happens when console=ttyS0 is on the
+# kernel command line of a laptop.
+#
+# A port with no type file (virtio hvc0, USB ttyUSB0, ARM ttyAMA0 before its
+# driver binds) is given the benefit of the doubt: the getty starts as before.
+# SYSFS_TTY_DIR is for the tests.
+set -u
+tty="${1:?usage: isotope-serial-present TTY [SYSFS_TTY_DIR]}"
+dir="${2:-/sys/class/tty}"
+
+type_file="$dir/$tty/type"
+[ -r "$type_file" ] || exit 0
+read -r type < "$type_file" || exit 0
+[ "$type" != 0 ]
