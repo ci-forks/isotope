@@ -32,6 +32,9 @@ type Hooks struct {
 	// Runner runs the programs of the pages (flatpak, nm-online). Nil
 	// leaves the Apps page with nothing to install.
 	Runner Runner
+	// Network is NetworkManager for the Network page. Nil shows the page
+	// as having no network device.
+	Network Network
 	// AppInstalled is called, from a background goroutine, for each app
 	// that installed: main pins a browser to the COSMIC dock.
 	AppInstalled func(id string)

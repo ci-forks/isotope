@@ -123,6 +123,24 @@ var pages = []struct {
 		u.installer = NewInstaller(online(), u.appList)
 		u.installer.setProgress(1, 5, "org.videolan.VLC")
 	}},
+	{"network-connected", Sway, 1, sizes, func(u *UI) {
+		networkAt(u, &fakeNet{state: NetState{Connected: true, Name: "Home", HasWifi: true}})
+	}},
+	{"network-wifi-list", Sway, 1, sizes, func(u *UI) {
+		networkAt(u, &fakeNet{state: NetState{HasWifi: true}, aps: homeAPs})
+	}},
+	{"network-password", Sway, 1, sizes, func(u *UI) {
+		p := networkAt(u, &fakeNet{state: NetState{HasWifi: true}, aps: homeAPs})
+		p.choose("Home")
+		p.pass.Editor.SetText("hunter22")
+	}},
+	{"network-error", Sway, 1, sizes, func(u *UI) {
+		p := networkAt(u, &fakeNet{state: NetState{HasWifi: true}, aps: homeAPs})
+		p.choose("Home")
+		p.pass.Editor.SetText("hunter22")
+		p.pass.Err = "Wrong password"
+	}},
+	{"network-no-device", Sway, 1, sizes, func(u *UI) { networkAt(u, &fakeNet{}) }},
 	{"skip-confirm", Sway, 1, sizes, func(u *UI) { u.askSkip() }},
 	{"welcome-scale-2", Cosmic, 2, []image.Point{{1440, 900}}, func(*UI) {}},
 }

@@ -110,8 +110,9 @@ func main() {
 				fmt.Fprintf(os.Stderr, "isotope-welcome: %v\n", err)
 			}
 		},
-		Close:  func() { closeAsked = true },
-		Runner: ExecRunner{},
+		Close:   func() { closeAsked = true },
+		Runner:  ExecRunner{},
+		Network: nmNetwork{},
 		AppInstalled: func(id string) {
 			// The chosen browser goes to the COSMIC dock.
 			if d == Cosmic && isBrowser(appList, id) {
