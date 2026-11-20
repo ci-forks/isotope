@@ -30,6 +30,20 @@ check "every inherited theme is installed" \
 # With -L, -type l matches only links that do not resolve (BusyBox find has no -xtype).
 check "every Conflux link resolves"           "test -d $C && test -z \"\$(find -L $C -type l)\""
 
+# Conflux is GPL-3.0: ship its licence and where it came from, and only the
+# theme itself, not the upstream repo's build files and previews.
+L=/usr/share/licenses/conflux
+check "Conflux's GPL-3.0 LICENSE is installed" \
+    "grep -q 'GNU GENERAL PUBLIC LICENSE' $L/LICENSE && test -s $L/CREDITS.md"
+# The pin comes from the Dockerfile, so the check follows a bump.
+pin=$(sed -n 's/^ARG CONFLUX_COMMIT=//p' "$(dirname "$0")/../../Dockerfile")
+if [ -z "$pin" ]; then echo "FAIL: no CONFLUX_COMMIT in the Dockerfile"; fail=1; else
+    check "Conflux's SOURCE names the pinned commit $pin" "grep -q '$pin' $L/SOURCE"
+fi
+check "Conflux holds only the theme (no Workspace, images, preview.png, update.sh, .github)" \
+    "for n in Workspace images preview.png update.sh .github README.md; do test ! -e $C/\$n || exit 1; done"
+check "the Conflux alias links are listed in conflux-links.txt" "test -s /usr/share/isotope/conflux-links.txt"
+
 # An app ID resolves if Conflux has apps/scalable/<id>.svg, or it is listed in
 # conflux-missing.txt (an app with no fitting Conflux icon).
 # shellcheck disable=SC2016 # expanded later, inside the image

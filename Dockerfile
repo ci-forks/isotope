@@ -3629,11 +3629,18 @@ RUN curl --retry-all-errors -fsSL --retry 5 https://icon-theme.freedesktop.org/r
     test -f /hicolor-icon-theme/usr/share/icons/hicolor/index.theme
 
 # Conflux, the Isotope icon theme (GPL-3.0 icons, data only), on every variant.
-# Its index.theme inherits Adwaita and breeze, which the image does not have, so
-# it is rewritten to inherit Cosmic (pop-os/cosmic-icons, installed here the way
-# its justfile does, as the toolchain has no `just`) and hicolor. Conflux names
-# few Flathub and COSMIC app IDs: theme/conflux-links.txt links those IDs to the
-# Conflux icon that fits. Apps with none are in theme/conflux-missing.txt.
+# Only what its index.theme lists is installed (index.theme and the directories
+# in Directories= that exist, with the @2x links of ScaledDirectories=), not the whole
+# repo: no Workspace/, images/, preview.png, update.sh or .github/. Its LICENSE
+# and CREDITS.md go to /usr/share/licenses/conflux with a SOURCE file (upstream
+# URL and pinned commit). The icons are unmodified; Isotope adds alias symlinks
+# (theme/conflux-links.txt, installed to /usr/share/isotope), the apps/48 link,
+# and rewrites the Inherits line of index.theme.
+# That Inherits line names Adwaita and breeze, which the image does not have, so
+# it inherits Cosmic (pop-os/cosmic-icons, installed here the way its justfile
+# does, as the toolchain has no `just`) and hicolor. Conflux names few Flathub
+# and COSMIC app IDs: theme/conflux-links.txt links those IDs to the Conflux
+# icon that fits. Apps with none are in theme/conflux-missing.txt.
 # Conflux ships a few dangling links (ProtonVPN status icons); they are removed.
 # mako globs <icon-path>/*/<number>/<name>.*, so apps/48 points at apps/scalable.
 # `find -L -type l` lists only broken links, and BusyBox find lacks -xtype.
@@ -3643,9 +3650,27 @@ ARG CONFLUX_COMMIT=85b0ef6dc59e4d459364337a92a14f604a2baa82
 # renovate: datasource=github-tags depName=pop-os/cosmic-session extractVersion=^epoch-(?<version>\d+(\.\d+)*)$
 ARG COSMIC_VERSION=1.11.0
 COPY theme/conflux-links.txt theme/conflux-missing.txt /build/
-RUN i=/icon-themes/usr/share/icons && c=$i/Conflux && \
-    mkdir -p $c $i/Cosmic /build/cosmic-icons /icon-themes/usr/share/isotope && \
-    curl --retry-all-errors -fsSL --retry 5 https://github.com/MoshiurRahmanAdib/Conflux-Icon-Theme/archive/${CONFLUX_COMMIT}.tar.gz | tar -xz --strip-components=1 -C $c && \
+RUN i=/icon-themes/usr/share/icons && c=$i/Conflux && s=/build/conflux && l=/icon-themes/usr/share/licenses/conflux && \
+    mkdir -p $c $s $l $i/Cosmic /build/cosmic-icons /icon-themes/usr/share/isotope && \
+    curl --retry-all-errors -fsSL --retry 5 https://github.com/MoshiurRahmanAdib/Conflux-Icon-Theme/archive/${CONFLUX_COMMIT}.tar.gz | tar -xz --strip-components=1 -C $s && \
+    install -m0644 $s/index.theme $c/index.theme && \
+    for d in $(sed -n 's/^Directories=//p' $s/index.theme | tr ',' ' '); do \
+      [ -d $s/$d ] || continue; mkdir -p $c/$(dirname $d) && cp -a $s/$d $c/$d || exit 1; \
+    done && \
+    for x in $(sed -n 's/^ScaledDirectories=//p' $s/index.theme | tr ',' ' ' | tr ' ' '\n' | cut -d/ -f1 | sort -u); do \
+      test -d $c/${x%@2x} && ln -s ${x%@2x} $c/$x || exit 1; \
+    done && \
+    rm -f $c/apps/scalable/optimize.sh && \
+    install -m0644 $s/LICENSE $s/CREDITS.md $l/ && \
+    printf '%s\n' \
+      'Conflux icon theme, by MoshiurRahmanAdib, licensed GPL-3.0 (see LICENSE; credits in CREDITS.md).' \
+      'Upstream: https://github.com/MoshiurRahmanAdib/Conflux-Icon-Theme' \
+      "Commit:   ${CONFLUX_COMMIT}" \
+      'The icons are installed unmodified. Isotope adds alias symlinks only (listed in' \
+      '/usr/share/isotope/conflux-links.txt), the apps/48 link, and sets the Inherits line' \
+      'of index.theme to Cosmic,hicolor. Dangling upstream links and the helper script' \
+      'apps/scalable/optimize.sh are not installed.' > $l/SOURCE && \
+    rm -rf $s && \
     sed -i 's/^Inherits=.*/Inherits=Cosmic,hicolor/' $c/index.theme && \
     curl --retry-all-errors -fsSL --retry 5 https://github.com/pop-os/cosmic-icons/archive/refs/tags/epoch-${COSMIC_VERSION}.tar.gz | tar -xz --strip-components=1 -C /build/cosmic-icons && \
     (cd /build/cosmic-icons && \
@@ -3659,11 +3684,13 @@ RUN i=/icon-themes/usr/share/icons && c=$i/Conflux && \
       [ $n -gt 0 ] || { echo "conflux-links.txt: no $name.svg in Conflux for $id" >&2; exit 1; }; \
     done && \
     ln -s scalable $c/apps/48 && \
-    install -Dm0644 /build/conflux-missing.txt /icon-themes/usr/share/isotope/conflux-missing.txt && \
+    install -Dm0644 /build/conflux-links.txt /build/conflux-missing.txt /icon-themes/usr/share/isotope/ && \
     rm -rf /build/cosmic-icons && \
     find -L $c -type l -exec rm -f {} + && \
     grep -qx 'Inherits=Cosmic,hicolor' $c/index.theme && \
     test -f $i/Cosmic/index.theme && \
+    grep -q 'GNU GENERAL PUBLIC LICENSE' $l/LICENSE && grep -q "$CONFLUX_COMMIT" $l/SOURCE && \
+    for n in Workspace images preview.png update.sh .github README.md CONTRIBUTING.md .gitignore; do test ! -e $c/$n || exit 1; done && \
     test -e $c/apps/scalable/org.videolan.VLC.svg && \
     test -e $c/apps/48/org.videolan.VLC.svg && \
     test -z "$(find -L $c -type l)"

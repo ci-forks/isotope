@@ -439,10 +439,22 @@
 
 <script>
   const cx = document.getElementById('cx');
+  // Conflux is GPL-3.0 and is not copied into this repo: the mock loads each icon
+  // from upstream at the commit Isotope pins (it needs network access).
+  const CONFLUX_BASE = 'https://raw.githubusercontent.com/MoshiurRahmanAdib/Conflux-Icon-Theme/85b0ef6dc59e4d459364337a92a14f604a2baa82/';
+  const CONFLUX = Object.fromEntries(Object.entries({
+    calc:'apps/scalable/accessories-calculator', cal:'apps/scalable/calendar',
+    files:'apps/scalable/system-file-manager', firefox:'apps/scalable/firefox',
+    settings:'apps/scalable/settings', store:'apps/scalable/software-store',
+    term:'apps/scalable/utilities-terminal', dl:'places/scalable/folder-download',
+    docs:'places/scalable/folder-documents', folder:'places/scalable/folder',
+    home:'places/scalable/user-home', music:'places/scalable/folder-music',
+    trash:'places/scalable/user-trash'
+  }).map(([k, v]) => [k, CONFLUX_BASE + v + '.svg']));
   const state = { mode:'', acc:'', mat:'', ic:'conflux' };
   function apply() {
     cx.className = 'cx ' + [state.mode, state.acc, state.mat].filter(Boolean).join(' ');
-    cx.querySelectorAll('img[data-i]').forEach(e => { e.src = 'ic-' + state.ic + '-' + e.dataset.i + '.svg'; });
+    cx.querySelectorAll('img[data-i]').forEach(e => { e.src = (state.ic === 'conflux' && CONFLUX[e.dataset.i]) || 'ic-' + state.ic + '-' + e.dataset.i + '.svg'; });
   }
   cx.querySelectorAll('.tb button').forEach(b => b.onclick = () => {
     state[b.dataset.k] = b.dataset.v;
