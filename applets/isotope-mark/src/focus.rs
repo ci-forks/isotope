@@ -108,6 +108,12 @@ impl ToplevelInfoHandler for AppData {
 sctk::delegate_registry!(AppData);
 cctk::delegate_toplevel_info!(AppData);
 
+/// Sets close-on-exec on `socket`, keeping its other fd flags.
+fn close_on_exec(socket: &UnixStream) -> rustix::io::Result<()> {
+    let flags = rustix::io::fcntl_getfd(socket)?;
+    rustix::io::fcntl_setfd(socket, flags | rustix::io::FdFlags::CLOEXEC)
+}
+
 /// Follows the focused window until the connection or the applet goes away.
 fn watch(tx: mpsc::Sender<Focus>) -> Result<(), Box<dyn std::error::Error>> {
     let socket = std::env::var("X_PRIVILEGED_WAYLAND_SOCKET")
@@ -115,6 +121,12 @@ fn watch(tx: mpsc::Sender<Focus>) -> Result<(), Box<dyn std::error::Error>> {
         .and_then(|fd| fd.parse::<RawFd>().ok())
         // SAFETY: cosmic-panel passes this fd to the applet for this use only.
         .map(|fd| unsafe { UnixStream::from_raw_fd(fd) });
+    if let Some(socket) = &socket {
+        // cosmic-panel hands the fd over without close-on-exec: set it, so
+        // isotope-menu and whatever it starts do not inherit a privileged
+        // connection to the compositor.
+        close_on_exec(socket)?;
+    }
     let conn = match socket {
         Some(socket) => Connection::from_socket(socket)?,
         None => Connection::connect_to_env()?,
@@ -142,5 +154,21 @@ fn watch(tx: mpsc::Sender<Focus>) -> Result<(), Box<dyn std::error::Error>> {
         if app_data.tx.is_closed() {
             return Ok(());
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rustix::io::{FdFlags, fcntl_getfd, fcntl_setfd};
+
+    #[test]
+    fn privileged_socket_is_closed_on_exec() {
+        let (socket, _peer) = UnixStream::pair().unwrap();
+        // As cosmic-panel hands it over: inheritable.
+        fcntl_setfd(&socket, FdFlags::empty()).unwrap();
+        assert!(!fcntl_getfd(&socket).unwrap().contains(FdFlags::CLOEXEC));
+        close_on_exec(&socket).unwrap();
+        assert!(fcntl_getfd(&socket).unwrap().contains(FdFlags::CLOEXEC));
     }
 }

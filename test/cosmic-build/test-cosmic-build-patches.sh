@@ -8,7 +8,9 @@
 # - a patch that does not apply fails the build;
 # - CARGO_TARGET_DIR, as cargo sees it, ends in 12 hex when there are patches
 #   and is untouched when there are none;
-# - a directory argument is copied instead of downloaded.
+# - a directory argument is copied instead of downloaded;
+# - applets/Cargo.lock (Isotope's own applets) names only libcosmic revs that
+#   patches/cosmic/README.md lists, the revs the libcosmic patches are kept for.
 #
 #   test/cosmic-build/test-cosmic-build-patches.sh
 set -eu
@@ -146,5 +148,37 @@ if run "$work/build/self" >"$work/log8" 2>&1; then bad "self-copy not refused"; 
 # COSMIC_INSTALL_CMD replaces the just install, with the hashed target dir.
 COSMIC_INSTALL_CMD='echo "$CARGO_TARGET_DIR" > "$COSMIC_OUT/inst"' run fake-repo >"$work/log9" 2>&1 || { cat "$work/log9"; bad "install cmd build failed"; }
 grep -Eq "^$work/target/[0-9a-f]{12}\$" "$work/out/inst" && ok "install command ran with hashed target dir" || bad "install command not run"
+
+# Isotope's applets must stay on a libcosmic rev the patches are kept for:
+# patches/cosmic/README.md's table lists them (12 hex, in backticks). The revs
+# are read with cosmic-build.sh's own sed, so this sees what the build patches.
+repo=$(cd "$here/../.." && pwd)
+lock_revs() {
+    sed -n 's|^source = "git+https://github.com/pop-os/libcosmic[^#]*#\([0-9a-f]\{7\}\).*|\1|p' "$1" | sort -u
+}
+listed_revs() {
+    # shellcheck disable=SC2016 # the backticks of the Markdown table, not a command
+    sed -n 's/^| `\([0-9a-f]\{12\}\)` |.*/\1/p' "$repo/patches/cosmic/README.md"
+}
+# Prints each rev of lock $1 that the README does not list; fails if there is
+# one, or if the lock names no libcosmic at all.
+unlisted_revs() {
+    revs=$(lock_revs "$1")
+    [ -n "$revs" ] || { echo "(no libcosmic in $1)"; return 1; }
+    rc=0
+    for r in $revs; do
+        listed_revs | grep -q "^$r" || { echo "$r"; rc=1; }
+    done
+    return $rc
+}
+[ -n "$(listed_revs)" ] && ok "patches/cosmic/README.md lists libcosmic revs" || bad "no libcosmic revs found in patches/cosmic/README.md"
+if out=$(unlisted_revs "$repo/applets/Cargo.lock"); then
+    ok "applets/Cargo.lock names only listed libcosmic revs ($(lock_revs "$repo/applets/Cargo.lock" | tr '\n' ' '))"
+else
+    bad "applets/Cargo.lock names libcosmic revs patches/cosmic/README.md does not list: $out"
+fi
+# The check itself: a lock on an unlisted rev fails.
+printf '[[package]]\nname = "libcosmic"\nsource = "git+https://github.com/pop-os/libcosmic#0000000aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"\n' > "$work/unlisted.lock"
+if unlisted_revs "$work/unlisted.lock" >/dev/null; then bad "a lock on an unlisted libcosmic rev passed"; else ok "a lock on an unlisted libcosmic rev fails"; fi
 
 exit $fail

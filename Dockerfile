@@ -5161,15 +5161,23 @@ RUN --mount=type=cache,id=cosmic-cargo-registry,target=/usr/local/cargo/registry
 # focused app at the left of the top bar (isotope-applet-mark, panel ID
 # io.kairos.Isotope.Mark). Built like a stock COSMIC component, through
 # cosmic-build's directory mode, so the libcosmic patches apply to it and every
-# installed ELF is ldd-checked. Its libcosmic is the rev cosmic-applets pins,
-# so the shared cosmic-target cache already holds most of its dependencies.
+# installed ELF is ldd-checked. Its libcosmic is the rev cosmic-applets pins
+# (test/cosmic-build/test-cosmic-build-patches.sh checks that rev is one the
+# patches are kept for). It builds its dependency graph itself: in release CI
+# the COSMIC halves come prebuilt, and locally the neighbouring stages empty
+# the shared cosmic-target cache after each component.
+# The unit tests run first, in their own target dir; one of them compares the
+# applet's icon with docs/assets/isotope-mark.svg at its path in the repo, so
+# that file is copied to the same place relative to applets/.
 FROM cosmic-build AS isotope-applets
 # renovate: datasource=github-tags depName=pop-os/cosmic-session extractVersion=^epoch-(?<version>\d+(\.\d+)*)$
 ARG COSMIC_VERSION=1.11.0
 ENV COSMIC_VERSION=${COSMIC_VERSION} COSMIC_OUT=/cosmic
 ENV CARGO_TARGET_DIR=/cargo-target
 COPY applets /src/applets
+COPY docs/assets/isotope-mark.svg /src/docs/assets/isotope-mark.svg
 RUN --mount=type=cache,id=cosmic-cargo-registry,target=/usr/local/cargo/registry,sharing=locked --mount=type=cache,id=cosmic-target,target=/cargo-target,sharing=locked \
+    (cd /src/applets && CARGO_TARGET_DIR=/cargo-target/applets-test cargo test --locked) && \
     cosmic-build /src/applets && rm -rf /cargo-target/* && \
     test -x /cosmic/usr/bin/isotope-applet-mark && \
     grep -qa window_controls_left /cosmic/usr/bin/isotope-applet-mark && \

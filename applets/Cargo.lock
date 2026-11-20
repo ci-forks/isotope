@@ -2655,6 +2655,7 @@ name = "isotope-mark"
 version = "0.1.0"
 dependencies = [
  "libcosmic",
+ "rustix 1.1.5",
  "tracing",
  "tracing-log",
  "tracing-subscriber",
