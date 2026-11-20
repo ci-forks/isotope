@@ -10,6 +10,11 @@
 # and iced revisions within an epoch, so most of the dependency graph compiles
 # once. Nothing from the target dir reaches a layer.
 #
+# COSMIC_CARGO_ARGS adds arguments to the single `cargo build`. A component
+# whose workspace members must not share one cargo invocation sets
+# COSMIC_BUILD_RECIPE to a just recipe of its own justfile (with arguments),
+# which then replaces the `cargo build`.
+#
 # Every installed ELF is checked with ldd; a library that only the build stage
 # had would otherwise surface as a desktop that fails to start.
 set -eu
@@ -29,7 +34,11 @@ cd "$repo"
 # vergen asks git for these; there is no .git in a tarball.
 export VERGEN_GIT_COMMIT_DATE="1970-01-01" VERGEN_GIT_SHA="epoch-${COSMIC_VERSION}"
 
-cargo build --release --locked ${COSMIC_CARGO_ARGS:-}
+if [ -n "${COSMIC_BUILD_RECIPE:-}" ]; then
+    just ${COSMIC_BUILD_RECIPE}
+else
+    cargo build --release --locked ${COSMIC_CARGO_ARGS:-}
+fi
 mkdir -p "$COSMIC_OUT"
 just rootdir="$COSMIC_OUT" "$recipe"
 
