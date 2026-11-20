@@ -69,7 +69,11 @@ func main() {
 		fmt.Fprintln(os.Stderr, "isotope-welcome: backup is not available yet")
 		os.Exit(2)
 	}
-	home, _ := os.UserHomeDir()
+	home, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "isotope-welcome: %v\n", err)
+		os.Exit(1)
+	}
 	stateDir := StateDir(home, os.Getenv)
 	if page == PageLogin && !ShouldOpenAtLogin(stateDir) {
 		// Apps was skipped for want of a network: remind once, then go.
@@ -86,6 +90,16 @@ func main() {
 	// Only the whole flow writes the stamp: a page opened from the menu
 	// says nothing about the first login.
 	stamps := page == PageAll || page == PageLogin
+	// One whole flow at a time: the login hook and the menu's "Welcome"
+	// would both write the stamp.
+	unlock := func() {}
+	if stamps {
+		var ok bool
+		if unlock, ok = lockInstance(os.Getenv("XDG_RUNTIME_DIR")); !ok {
+			fmt.Fprintln(os.Stderr, "isotope-welcome: already open")
+			os.Exit(0)
+		}
+	}
 
 	appList := loadAppList()
 
@@ -149,8 +163,12 @@ func main() {
 				}
 			case app.DestroyEvent:
 				// A close nothing asked about (or that could not be
-				// stopped): before the stamp, a skip.
-				u.Closed()
+				// stopped): before the stamp, a skip. A window that
+				// failed writes none, so the next login tries again.
+				u.Destroyed(e.Err)
+				// The window is gone: Welcome may open again while the
+				// installs below finish.
+				unlock()
 				// An install the window started keeps running; say when
 				// it is done, as the window is gone.
 				if ok, failed, running := u.AwaitInstalls(); running {

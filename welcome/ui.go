@@ -265,11 +265,27 @@ func (u *UI) prev() {
 		u.answerSkip(false)
 		return
 	}
+	if u.held() {
+		return
+	}
 	u.flow.Back()
+}
+
+// holder is a page that holds the footer's Skip and Go back for now (the
+// Language page while it sets the language).
+type holder interface{ holding() bool }
+
+// held: the current page holds Skip and Go back.
+func (u *UI) held() bool {
+	h, ok := u.page().(holder)
+	return ok && h.holding()
 }
 
 // skipPage is Skip: the page's setting is left as it was.
 func (u *UI) skipPage() {
+	if u.held() {
+		return
+	}
 	// Apps skipped for lack of a network, or before the network check
 	// answered (it counts as offline): the next login reminds. A page
 	// opened alone writes no stamp, so it leaves no reminder either.
@@ -369,6 +385,15 @@ func (u *UI) CloseRequested() (keep bool) {
 	}
 	u.askSkip()
 	return true
+}
+
+// Destroyed is the window gone (app.DestroyEvent). A window that failed,
+// most likely before it ever showed Welcome (no GPU context), writes no
+// stamp, so the next login tries again.
+func (u *UI) Destroyed(err error) {
+	if err == nil {
+		u.Closed()
+	}
 }
 
 // Closed is the window going away. Before the stamp is written that is a

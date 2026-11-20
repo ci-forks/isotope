@@ -171,6 +171,26 @@ func (p *languagePage) refilter() {
 	p.list.Position.First, p.list.Position.Offset = 0, 0
 }
 
+// holding: SetLocale runs. Skip and Go back wait for it, so Ready says
+// what the call did (settle runs only while the page is current).
+func (p *languagePage) holding() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.busy
+}
+
+func (p *languagePage) Footer(n nav) (leading, trailing []guikit.Action) {
+	held := p.holding()
+	if n.Back != nil {
+		b := *n.Back
+		b.Disabled = held
+		leading = append(leading, b)
+	}
+	s := *n.Skip
+	s.Disabled = held
+	return leading, []guikit.Action{s, *n.Continue}
+}
+
 // pick is the locale chosen in the list, if it differs from the system's.
 func (p *languagePage) pick() (Locale, bool) {
 	if p.sel < 0 || p.sel >= len(p.locales) {

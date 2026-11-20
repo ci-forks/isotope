@@ -304,3 +304,38 @@ func TestSkipSetupAfterAnOfflineAppsSkipKeepsTheReminder(t *testing.T) {
 	u.answerSkip(true)
 	wantStamps(t, rec, StampAppsPending)
 }
+
+// M3: a window that failed (no GPU context) and never showed Welcome
+// writes no stamp, so the next login tries again.
+func TestWindowErrorWritesNoStamp(t *testing.T) {
+	u, r := newRecorded(NewFlow(Sway), Sway)
+	u.Destroyed(errors.New("egl: no display"))
+	wantStamps(t, r)
+	u.Destroyed(nil)
+	wantStamps(t, r, StampSkipped)
+}
+
+// M5: while SetLocale runs, Skip and Go back wait, so Ready reports the
+// language the call sets.
+func TestLanguageBusyHoldsSkipAndBack(t *testing.T) {
+	u, _ := newRecorded(NewFlow(Sway), Sway)
+	to(u, PLanguage)
+	p := u.page().(*languagePage)
+	p.busy = true
+	u.skipPage()
+	u.prev()
+	if u.flow.Current() != PLanguage || contains(u.flow.Outcome.Skipped, PLanguage) {
+		t.Fatalf("page %s, skipped %v", u.flow.Current(), u.flow.Outcome.Skipped)
+	}
+	lead, trail := p.Footer(u.nav())
+	for _, a := range append(lead, trail...) {
+		if (a.Click == &u.skip || a.Click == &u.back) && !a.Disabled {
+			t.Errorf("%s is enabled while the language is set", a.Label)
+		}
+	}
+	p.busy = false
+	u.skipPage()
+	if u.flow.Current() == PLanguage {
+		t.Fatal("Skip once the call is done must move on")
+	}
+}
