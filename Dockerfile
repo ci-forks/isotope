@@ -3529,13 +3529,11 @@ RUN --mount=type=cache,id=cosmic-cargo-registry,target=/usr/local/cargo/registry
 RUN --mount=type=cache,id=cosmic-cargo-registry,target=/usr/local/cargo/registry,sharing=locked --mount=type=cache,id=cosmic-target,target=/cargo-target,sharing=locked cosmic-build cosmic-notifications && rm -rf /cargo-target/*
 RUN --mount=type=cache,id=cosmic-cargo-registry,target=/usr/local/cargo/registry,sharing=locked --mount=type=cache,id=cosmic-target,target=/cargo-target,sharing=locked cosmic-build cosmic-launcher && rm -rf /cargo-target/*
 RUN --mount=type=cache,id=cosmic-cargo-registry,target=/usr/local/cargo/registry,sharing=locked --mount=type=cache,id=cosmic-target,target=/cargo-target,sharing=locked cosmic-build cosmic-app-library && rm -rf /cargo-target/*
-# cosmic-workspaces installs with make, not just.
+# cosmic-workspaces installs with make, not just, and builds only its binary.
 RUN --mount=type=cache,id=cosmic-cargo-registry,target=/usr/local/cargo/registry,sharing=locked --mount=type=cache,id=cosmic-target,target=/cargo-target,sharing=locked \
-    mkdir -p /build/ws && curl --retry-all-errors -fsSL --retry 5 https://github.com/pop-os/cosmic-workspaces-epoch/archive/refs/tags/epoch-${COSMIC_VERSION}.tar.gz | tar -xz --strip-components=1 -C /build/ws && \
-    cd /build/ws && cargo build --release --locked --bin cosmic-workspaces && \
-    make install DESTDIR=/cosmic CARGO_TARGET_DIR=/cargo-target && \
-    ! ldd /cosmic/usr/bin/cosmic-workspaces | grep 'not found' && \
-    cd /build && rm -rf /build/ws /cargo-target/*
+    COSMIC_CARGO_ARGS="--bin cosmic-workspaces" \
+    COSMIC_INSTALL_CMD='make install DESTDIR="$COSMIC_OUT" CARGO_TARGET_DIR="$CARGO_TARGET_DIR"' \
+    cosmic-build cosmic-workspaces-epoch && rm -rf /cargo-target/*
 RUN --mount=type=cache,id=cosmic-cargo-registry,target=/usr/local/cargo/registry,sharing=locked --mount=type=cache,id=cosmic-target,target=/cargo-target,sharing=locked cosmic-build cosmic-idle && rm -rf /cargo-target/*
 RUN --mount=type=cache,id=cosmic-cargo-registry,target=/usr/local/cargo/registry,sharing=locked --mount=type=cache,id=cosmic-target,target=/cargo-target,sharing=locked cosmic-build cosmic-randr && rm -rf /cargo-target/*
 RUN --mount=type=cache,id=cosmic-cargo-registry,target=/usr/local/cargo/registry,sharing=locked --mount=type=cache,id=cosmic-target,target=/cargo-target,sharing=locked cosmic-build cosmic-screenshot && rm -rf /cargo-target/*

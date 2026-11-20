@@ -15,6 +15,9 @@ Layout:
   Each checkout gets a stamp `.isotope-patched-<sha256 of these patches>` and is
   patched once; components built later in the same stage see it already patched.
 
+Only what `cosmic-build.sh` builds is patched: greetd and pop-launcher are built
+by their own Dockerfile stages, so patches for them are not applied.
+
 A patch that does not apply fails the build. `CARGO_TARGET_DIR` gets a
 `/<first 12 hex of the sha256 of all patches>` suffix when there are patches, so
 a cached target dir cannot hold code built without them.

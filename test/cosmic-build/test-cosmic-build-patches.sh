@@ -116,4 +116,35 @@ cp "$work/patches/fake-repo/0001-hello.patch" "$work/patches/applets/"
 run "$work/applets" >"$work/log5" 2>&1 || { cat "$work/log5"; bad "directory mode failed"; }
 [ "$(cat "$work/hello.seen")" = "hello isotope" ] && ok "directory copied and patched" || bad "directory mode did not patch"
 
+# A lock that names no libcosmic: passes, nothing patched.
+mkdir -p "$work/nolib"
+printf 'hello\n' > "$work/nolib/hello.txt"
+printf '[[package]]\nname = "x"\n' > "$work/nolib/Cargo.lock"
+printf 'lib\n' > "$work/cargo/git/checkouts/libcosmic-x/abc1234/lib.txt"
+rm -f "$work/cargo/git/checkouts/libcosmic-x/abc1234"/.isotope-patched-*
+run "$work/nolib" >"$work/log6" 2>&1 || { cat "$work/log6"; bad "lock without libcosmic failed"; }
+[ "$(cat "$work/cargo/git/checkouts/libcosmic-x/abc1234/lib.txt")" = "lib" ] && ok "lock without libcosmic: nothing patched" || bad "libcosmic patched without being named"
+
+# Two revs named, one checkout missing: fails.
+mkdir -p "$work/tworev"
+printf 'hello\n' > "$work/tworev/hello.txt"
+cat > "$work/tworev/Cargo.lock" <<'LOCK'
+[[package]]
+name = "libcosmic"
+source = "git+https://github.com/pop-os/libcosmic?rev=abc1234#abc1234def5678abc1234def5678abc1234def56"
+[[package]]
+name = "iced"
+source = "git+https://github.com/pop-os/libcosmic?rev=fff9999#fff9999def5678abc1234def5678abc1234def56"
+LOCK
+if run "$work/tworev" >"$work/log7" 2>&1; then bad "missing second checkout did not fail"; else ok "a named rev without a checkout fails"; fi
+
+# The source dir may not be the build dir's own copy.
+mkdir -p "$work/build/self"
+if run "$work/build/self" >"$work/log8" 2>&1; then bad "self-copy not refused"; else ok "source equal to build dir refused"; fi
+[ -d "$work/build/self" ] && ok "source dir survived" || bad "source dir deleted"
+
+# COSMIC_INSTALL_CMD replaces the just install, with the hashed target dir.
+COSMIC_INSTALL_CMD='echo "$CARGO_TARGET_DIR" > "$COSMIC_OUT/inst"' run fake-repo >"$work/log9" 2>&1 || { cat "$work/log9"; bad "install cmd build failed"; }
+grep -Eq "^$work/target/[0-9a-f]{12}\$" "$work/out/inst" && ok "install command ran with hashed target dir" || bad "install command not run"
+
 exit $fail
