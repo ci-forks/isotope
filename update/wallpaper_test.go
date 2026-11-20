@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,6 +14,34 @@ const (
 	wpDay   = "/usr/share/backgrounds/isotope/isotope-desktop-day.png"
 	wpNight = "/usr/share/backgrounds/isotope/isotope-desktop-night.png"
 )
+
+const shippedBackground = "../rootfs-cosmic/usr/share/cosmic/com.system76.CosmicBackground/v1/all"
+
+// fixtureBackground is a copy of the shipped file in testdata/, because the
+// image build's test stage has only update/ in its context.
+func fixtureBackground(t *testing.T) string {
+	t.Helper()
+	b, err := os.ReadFile("testdata/CosmicBackground-all")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+// The copy must not drift from the shipped file; skipped when the repo
+// outside update/ is not there.
+func TestBackgroundFixtureMatchesShipped(t *testing.T) {
+	shipped, err := os.ReadFile(shippedBackground)
+	if errors.Is(err, os.ErrNotExist) {
+		t.Skip("repo outside update/ not available")
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(shipped) != fixtureBackground(t) {
+		t.Error("update/testdata/CosmicBackground-all differs from the shipped file; copy it again")
+	}
+}
 
 func writeCfg(t *testing.T, root, name, key, val string) {
 	t.Helper()
@@ -91,12 +120,9 @@ func TestReadIsDarkFallsBackToSystem(t *testing.T) {
 }
 
 func TestSetWallpaperKeepsOtherFields(t *testing.T) {
-	in, err := os.ReadFile("../rootfs-cosmic/usr/share/cosmic/com.system76.CosmicBackground/v1/all")
-	if err != nil {
-		t.Fatal(err)
-	}
+	in := fixtureBackground(t)
 	home, sys := t.TempDir(), t.TempDir()
-	writeCfg(t, sys, "com.system76.CosmicBackground", "all", string(in))
+	writeCfg(t, sys, "com.system76.CosmicBackground", "all", in)
 	ron, path, err := currentWallpaper(home, sys)
 	if err != nil || path != wpNight {
 		t.Fatalf("current = %q, %v", path, err)
@@ -108,15 +134,15 @@ func TestSetWallpaperKeepsOtherFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := strings.Replace(string(in), wpNight, wpDay, 1); string(out) != want {
+	if want := strings.Replace(in, wpNight, wpDay, 1); string(out) != want {
 		t.Errorf("got\n%s\nwant\n%s", out, want)
 	}
 }
 
 func TestFollowCatchesUpAtStart(t *testing.T) {
 	home, sys := t.TempDir(), t.TempDir()
-	in, _ := os.ReadFile("../rootfs-cosmic/usr/share/cosmic/com.system76.CosmicBackground/v1/all")
-	writeCfg(t, sys, "com.system76.CosmicBackground", "all", string(in))
+	in := fixtureBackground(t)
+	writeCfg(t, sys, "com.system76.CosmicBackground", "all", in)
 	writeCfg(t, filepath.Join(home, ".config", "cosmic"), "com.system76.CosmicTheme.Mode", "is_dark", "false")
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // one pass, then stop
@@ -131,8 +157,8 @@ func TestFollowCatchesUpAtStart(t *testing.T) {
 
 func TestFollowSeesLaterChange(t *testing.T) {
 	home, sys := t.TempDir(), t.TempDir()
-	in, _ := os.ReadFile("../rootfs-cosmic/usr/share/cosmic/com.system76.CosmicBackground/v1/all")
-	writeCfg(t, sys, "com.system76.CosmicBackground", "all", string(in))
+	in := fixtureBackground(t)
+	writeCfg(t, sys, "com.system76.CosmicBackground", "all", in)
 	writeCfg(t, sys, "com.system76.CosmicTheme.Mode", "is_dark", "true")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
