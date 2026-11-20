@@ -8,6 +8,10 @@ SUBSYSTEM!="block", GOTO="isotope_udisks_end"
 
 ENV{ID_FS_LABEL}=="COS_*", ENV{UDISKS_IGNORE}="1"
 ENV{ID_FS_LABEL}=="*_LUKS", ENV{UDISKS_IGNORE}="1"
-ENV{ID_FS_TYPE}=="crypto_LUKS", ATTR{removable}!="1", ENV{UDISKS_IGNORE}="1"
+# A partition has no "removable" attribute of its own, it is on the parent
+# disk, so hide every LUKS volume first and then show it again when a parent
+# says the disk is removable (ATTRS walks the parents).
+ENV{ID_FS_TYPE}=="crypto_LUKS", ENV{UDISKS_IGNORE}="1"
+ENV{ID_FS_TYPE}=="crypto_LUKS", ATTRS{removable}=="1", ENV{UDISKS_IGNORE}=""
 
 LABEL="isotope_udisks_end"

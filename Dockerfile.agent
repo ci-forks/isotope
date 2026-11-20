@@ -256,5 +256,8 @@ RUN rm -rf /usr/bin/udisksctl /usr/sbin/umount.udisks2 /usr/lib/udisks2 \
       /usr/share/dbus-1/system-services/org.freedesktop.UDisks2.service \
       /usr/share/polkit-1/actions/org.freedesktop.UDisks2.policy \
       /usr/share/bash-completion/completions/udisksctl /usr/share/zsh/site-functions/_udisks2 \
-      /etc/udisks2 /var/lib/udisks2 && \
+      /etc/udisks2 /var/lib/udisks2 \
+      /etc/systemd/system/multi-user.target.wants/udisks2.service \
+      /usr/share/polkit-1/rules.d/50-isotope-udisks.rules \
+      /usr/lib/udev/rules.d/90-isotope-udisks-ignore.rules && \
     ! test -e /usr/bin/udisksctl && ! test -e /usr/lib/udisks2

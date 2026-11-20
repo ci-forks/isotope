@@ -121,7 +121,7 @@ if run "grep -qx FLAVOR=server /etc/isotope/release" >/dev/null 2>&1; then
     echo "SKIP: udisks2 (server edition)"
 elif run "grep -qx FLAVOR=agent /etc/isotope/release" >/dev/null 2>&1; then
     check "udisks2 is removed from the agent image" \
-        "! test -e /usr/lib/udisks2/udisksd && ! test -e /usr/lib/systemd/system/udisks2.service"
+        "! test -e /usr/lib/udisks2/udisksd && ! test -e /usr/lib/systemd/system/udisks2.service && ! test -L /etc/systemd/system/multi-user.target.wants/udisks2.service"
 else
     check "udisks2: daemon and unit are installed" \
         "test -x /usr/lib/udisks2/udisksd && grep -q '^ExecStart=/usr/lib/udisks2/udisksd' /usr/lib/systemd/system/udisks2.service"
@@ -132,9 +132,11 @@ else
     check "udisks2: D-Bus policy and activation file are installed" \
         "test -f /usr/share/dbus-1/system.d/org.freedesktop.UDisks2.conf && grep -qx 'SystemdService=udisks2.service' /usr/share/dbus-1/system-services/org.freedesktop.UDisks2.service"
     check "udisks2: polkit actions and the session rule are installed" \
-        "test -f /usr/share/polkit-1/actions/org.freedesktop.UDisks2.policy && test -f /usr/share/polkit-1/rules.d/50-isotope-udisks.rules"
+        "test -f /usr/share/polkit-1/actions/org.freedesktop.UDisks2.policy && r=/usr/share/polkit-1/rules.d/50-isotope-udisks.rules && grep -qF 'udisks2.filesystem-mount\"' \$r && grep -qF 'udisks2.eject-media\"' \$r && grep -qF 'udisks2.power-off-drive\"' \$r && grep -q 'subject.local && subject.active' \$r && ! (grep -v '^//' \$r | grep -q 'mount-system\\|unmount-others')"
     check "udisks2: the Kairos partitions are ignored by udev" \
-        "test -f /usr/lib/udev/rules.d/90-isotope-udisks-ignore.rules"
+        "r=/usr/lib/udev/rules.d/90-isotope-udisks-ignore.rules && grep -q 'COS_\\*.*UDISKS_IGNORE' \$r && grep -q 'crypto_LUKS.*UDISKS_IGNORE' \$r"
+    check "udisks2: the udev rule has no syntax errors" \
+        "udevadm verify /usr/lib/udev/rules.d/90-isotope-udisks-ignore.rules"
 fi
 
 exit "$fail"
