@@ -249,19 +249,27 @@ Continue without a network is allowed; Apps then says so (below).
 
 - **Dark or light**, two large cards. Dark is the default and Isotope's
   look.
-- **COSMIC only**: COSMIC's accent colours and its "frosted" effect, the
-  options of its appearance page.
+
+No accent colours and no "frosted" toggle. `cosmic-initial-setup`'s
+appearance page (epoch-1.11.0) has no accent picker, and its frosted toggle
+works only because it rebuilds COSMIC's theme with libcosmic's palette code
+(`builder.build()`); nothing in COSMIC rebuilds the theme from a changed
+builder key alone (cosmic-settings-daemon watches the built themes and the
+mode, not the builders). Writing those keys from Welcome would look applied
+and change nothing, which is an anti-goal. COSMIC Settings → Appearance keeps
+both.
 
 How it applies:
 
 - Every variant: the app preference, so GTK, Qt and Flatpak apps follow it:
   `org.gnome.desktop.interface color-scheme` (`prefer-dark` / `prefer-light`)
-  through gsettings, read by the portal; `gtk-application-prefer-dark-theme`
-  in the user's `~/.config/gtk-3.0/settings.ini` (i3 sets it system-wide
-  today).
-- COSMIC: also `com.system76.CosmicTheme.Mode` `is_dark`, and the accent and
-  frosted keys, as `cosmic-initial-setup` writes them. COSMIC applies these
-  live.
+  and `gtk-theme` (`Adwaita-dark` / `Adwaita`: the image's schema override
+  sets `Adwaita-dark`, and GTK3 on Wayland follows that key, not
+  `color-scheme`) through gsettings, read by the portal;
+  `gtk-application-prefer-dark-theme` in the user's
+  `~/.config/gtk-3.0/settings.ini` (i3 sets it system-wide today).
+- COSMIC: also `com.system76.CosmicTheme.Mode` `is_dark`. COSMIC applies it
+  live (cosmic-settings-daemon watches it and updates gsettings itself).
 - sway, i3, niri: the desktop chrome (bar, terminal, notifications, menus)
   stays Isotope's dark theme in both modes. Only apps change. This avoids the
   half-themed desktop (an anti-goal). The light card says "Apps use a light
