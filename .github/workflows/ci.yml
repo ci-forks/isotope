@@ -206,6 +206,12 @@ jobs:
           done
           jq empty rootfs-sway/etc/xdg/waybar/config
           jq empty rootfs-niri/usr/share/isotope/noctalia-palettes/Isotope.json
+          # The COSMIC dock pins only apps the image ships. Isotope has no
+          # browser (Flathub's Firefox is org.mozilla.firefox), so upstream's
+          # "firefox" pin would show a broken icon.
+          dock=rootfs-cosmic/usr/share/cosmic/com.system76.CosmicAppList/v1/favorites
+          grep -q '"com.system76.CosmicFiles"' "$dock"
+          ! grep -qi firefox "$dock"
 
       # The selection and stamp logic, against a fake flatpak in Alpine.
       - name: First-run app picker
