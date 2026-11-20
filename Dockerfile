@@ -3803,7 +3803,7 @@ RUN ./configure ${COMMON_CONFIGURE_ARGS} --without-python3 --without-gtk-doc --w
 RUN make -j"$(nproc)" && make install DESTDIR=/libbytesize
 
 # keyutils: libblockdev's crypto plugin includes <keyutils.h> (kernel keyring
-# calls for LUKS keys). Only the library and header are kept.
+# calls for LUKS keys). Build-time only: the image uses Hadron's libkeyutils.so.1.
 FROM toolchain AS keyutils
 # renovate: datasource=git-tags depName=https://git.kernel.org/pub/scm/linux/kernel/git/dhowells/keyutils.git extractVersion=^v(?<version>\d+(\.\d+)*)$
 ARG KEYUTILS_VERSION=1.6.3
@@ -3816,7 +3816,9 @@ RUN make -j"$(nproc)" LIBDIR=/usr/lib USRLIBDIR=/usr/lib NO_ARLIB=1 NO_SOLIB=0 &
     rm -rf /keyutils/usr/share/man /keyutils/usr/sbin /keyutils/usr/bin /keyutils/bin /keyutils/sbin /keyutils/etc /keyutils/lib /keyutils/usr/share/keyutils && \
     test -f /keyutils/usr/include/keyutils.h
 
-# libcryptsetup: libblockdev's crypto plugin (LUKS) links it, and udisks2
+# libcryptsetup (build-time only, for headers: the image uses Hadron's own
+# libcryptsetup.so.12, so keep this version in step with Hadron's): libblockdev's
+# crypto plugin (LUKS) links it, and udisks2
 # requires that plugin. Library only: no cryptsetup binaries, no veritysetup,
 # integritysetup or LUKS2 reencrypt, no ssh-token. The toolchain has the
 # devmapper, json-c, openssl, uuid and blkid it needs.
@@ -5279,8 +5281,10 @@ COPY --from=power-profiles-daemon /power-profiles-daemon /
 COPY --from=gmp /gmp /
 COPY --from=mpfr /mpfr /
 COPY --from=libbytesize /libbytesize /
-COPY --from=keyutils /keyutils /
-COPY --from=cryptsetup /cryptsetup /
+# libcryptsetup and libkeyutils are not copied: Hadron already ships them and
+# dracut unlocks COS_PERSISTENT_LUKS with them at boot, so libbd_crypto links
+# the base image's copies (the cryptsetup and keyutils stages are build-time
+# headers only; CRYPTSETUP_VERSION must follow Hadron's).
 COPY --from=libnvme /libnvme /
 COPY --from=libblockdev /libblockdev /
 COPY --from=udisks2 /udisks2 /

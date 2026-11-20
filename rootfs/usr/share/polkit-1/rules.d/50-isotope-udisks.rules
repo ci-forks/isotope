@@ -3,6 +3,12 @@
 // "local" and "active" mean a session on this machine's seat, not an SSH or
 // a background one; anyone else falls through to udisks2's own policy.
 //
+// This is a convenience, not the gate: udisks2's own policy already allows
+// these actions to an active local session (allow_active=yes) for disks it
+// does not call system disks. What keeps the Kairos partitions out of reach
+// is 90-isotope-udisks-ignore.rules (UDISKS_SYSTEM), so do not loosen
+// anything here thinking this file is what protects them.
+//
 // Not granted here: filesystem-unmount-others (udisks2 already lets a user
 // unmount what they mounted) and filesystem-mount-system (a disk marked as
 // a system disk stays behind an administrator's password).

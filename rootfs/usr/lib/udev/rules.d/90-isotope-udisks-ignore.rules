@@ -1,17 +1,25 @@
 # Kairos' own partitions are not for the person at the desktop to mount:
-# COS_* (OEM, STATE, PERSISTENT, RECOVERY, ...), the encrypted ones named
-# *_LUKS, and any LUKS volume on a fixed disk. udisks2 reads UDISKS_IGNORE
-# and leaves them out of its object list (HintIgnore), so no file manager
-# offers them. A LUKS stick (a removable device) is still offered.
+# COS_* (OEM, STATE, PERSISTENT, RECOVERY, GRUB, ...), the encrypted ones
+# named *_LUKS, and any LUKS volume on a fixed disk. UDISKS_IGNORE only hides
+# them from listings, so they are also marked UDISKS_SYSTEM: udisks2 treats a
+# disk on USB, an SD card or eMMC as a non-system disk (a mount needs no
+# password), and Kairos can be installed on those. A system disk needs an
+# administrator's password. UDISKS_SYSTEM is read as an override of udisks2's
+# own guess. COS_* also covers the Kairos install stick (COS_LIVE).
 ACTION=="remove", GOTO="isotope_udisks_end"
 SUBSYSTEM!="block", GOTO="isotope_udisks_end"
 
-ENV{ID_FS_LABEL}=="COS_*", ENV{UDISKS_IGNORE}="1"
-ENV{ID_FS_LABEL}=="*_LUKS", ENV{UDISKS_IGNORE}="1"
 # A partition has no "removable" attribute of its own, it is on the parent
-# disk, so hide every LUKS volume first and then show it again when a parent
-# says the disk is removable (ATTRS walks the parents).
+# disk, so hide every LUKS volume first and then show it again where udisks2
+# would call the disk removable: a removable disk (ATTRS walks the parents),
+# USB or IEEE 1394 (SSD and HDD enclosures report removable=0), SD and
+# memory-stick cards.
 ENV{ID_FS_TYPE}=="crypto_LUKS", ENV{UDISKS_IGNORE}="1"
 ENV{ID_FS_TYPE}=="crypto_LUKS", ATTRS{removable}=="1", ENV{UDISKS_IGNORE}=""
+ENV{ID_FS_TYPE}=="crypto_LUKS", ENV{ID_BUS}=="usb|ieee1394", ENV{UDISKS_IGNORE}=""
+ENV{ID_FS_TYPE}=="crypto_LUKS", KERNEL=="mmcblk*|mspblk*", ENV{UDISKS_IGNORE}=""
+
+# The Kairos partitions last, so nothing above shows them again
+ENV{ID_FS_LABEL}=="COS_*|*_LUKS", ENV{UDISKS_IGNORE}="1", ENV{UDISKS_SYSTEM}="1"
 
 LABEL="isotope_udisks_end"
