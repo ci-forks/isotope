@@ -3528,7 +3528,17 @@ ENV COSMIC_VERSION=${COSMIC_VERSION} COSMIC_OUT=/cosmic
 ENV CARGO_TARGET_DIR=/cargo-target
 RUN --mount=type=cache,id=cosmic-cargo-registry,target=/usr/local/cargo/registry,sharing=locked --mount=type=cache,id=cosmic-target,target=/cargo-target,sharing=locked cosmic-build xdg-desktop-portal-cosmic && rm -rf /cargo-target/*
 RUN --mount=type=cache,id=cosmic-cargo-registry,target=/usr/local/cargo/registry,sharing=locked --mount=type=cache,id=cosmic-target,target=/cargo-target,sharing=locked cosmic-build cosmic-settings && rm -rf /cargo-target/*
-RUN --mount=type=cache,id=cosmic-cargo-registry,target=/usr/local/cargo/registry,sharing=locked --mount=type=cache,id=cosmic-target,target=/cargo-target,sharing=locked COSMIC_CARGO_ARGS="--package cosmic-files --package cosmic-files-applet --package cosmic-files-thumbnailer" cosmic-build cosmic-files && rm -rf /cargo-target/*
+# cosmic-files is built with upstream's build-release recipe, which runs one
+# cargo invocation per package. One invocation for all three packages unifies
+# the applet's desktop-applet feature into the cosmic-files app, which then
+# opens a Desktop tab and a full-screen layer surface on every output. The
+# log string checked here is compiled only with desktop-applet: the app must
+# not have it, and the applet must, so the check cannot pass on a binary
+# without the string.
+RUN --mount=type=cache,id=cosmic-cargo-registry,target=/usr/local/cargo/registry,sharing=locked --mount=type=cache,id=cosmic-target,target=/cargo-target,sharing=locked COSMIC_BUILD_RECIPE="build-release --locked" cosmic-build cosmic-files && \
+    ! grep -qa 'already had surface ID' /cosmic/usr/bin/cosmic-files && \
+    grep -qa 'already had surface ID' /cosmic/usr/bin/cosmic-files-applet && \
+    rm -rf /cargo-target/*
 RUN --mount=type=cache,id=cosmic-cargo-registry,target=/usr/local/cargo/registry,sharing=locked --mount=type=cache,id=cosmic-target,target=/cargo-target,sharing=locked cosmic-build cosmic-term && rm -rf /cargo-target/*
 RUN --mount=type=cache,id=cosmic-cargo-registry,target=/usr/local/cargo/registry,sharing=locked --mount=type=cache,id=cosmic-target,target=/cargo-target,sharing=locked cosmic-build cosmic-edit && rm -rf /cargo-target/*
 RUN --mount=type=cache,id=cosmic-cargo-registry,target=/usr/local/cargo/registry,sharing=locked --mount=type=cache,id=cosmic-target,target=/cargo-target,sharing=locked cosmic-build cosmic-store && rm -rf /cargo-target/*
