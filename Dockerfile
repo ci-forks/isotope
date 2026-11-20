@@ -3785,6 +3785,155 @@ WORKDIR /build/src
 # Not COMMON_CONFIGURE_ARGS: MPFR rejects --enable-lto for a shared library.
 RUN ./configure --prefix=/usr --enable-shared --disable-static && make -j"$(nproc)" && make DESTDIR=/mpfr install
 
+# libbytesize: byte-size arithmetic (GMP, MPFR, PCRE2) that libblockdev's mdraid
+# plugin needs. No Python bindings, no docs. msgfmt for its translations comes
+# from gettext-tools.
+FROM toolchain AS libbytesize
+COPY --from=gmp /gmp /
+COPY --from=mpfr /mpfr /
+COPY --from=pcre2 /pcre2 /
+COPY --from=gettext-tools /gettext-tools /
+# renovate: datasource=github-releases depName=storaged-project/libbytesize
+ARG LIBBYTESIZE_VERSION=2.12
+RUN mkdir -p /libbytesize
+WORKDIR /build
+RUN curl -f --retry 5 --retry-delay 3 --retry-all-errors -L https://github.com/storaged-project/libbytesize/releases/download/${LIBBYTESIZE_VERSION}/libbytesize-${LIBBYTESIZE_VERSION}.tar.gz -o b.tar.gz && tar -xzf b.tar.gz && rm b.tar.gz && mv libbytesize-* src
+WORKDIR /build/src
+RUN ./configure ${COMMON_CONFIGURE_ARGS} --without-python3 --without-gtk-doc --without-tools
+RUN make -j"$(nproc)" && make install DESTDIR=/libbytesize
+
+# keyutils: libblockdev's crypto plugin includes <keyutils.h> (kernel keyring
+# calls for LUKS keys). Build-time only: the image uses Hadron's libkeyutils.so.1.
+FROM toolchain AS keyutils
+# renovate: datasource=git-tags depName=https://git.kernel.org/pub/scm/linux/kernel/git/dhowells/keyutils.git extractVersion=^v(?<version>\d+(\.\d+)*)$
+ARG KEYUTILS_VERSION=1.6.3
+RUN mkdir -p /keyutils
+WORKDIR /build
+RUN curl -f --retry 5 --retry-delay 3 --retry-all-errors -L https://git.kernel.org/pub/scm/linux/kernel/git/dhowells/keyutils.git/snapshot/keyutils-${KEYUTILS_VERSION}.tar.gz -o k.tar.gz && tar -xzf k.tar.gz && rm k.tar.gz && mv keyutils-* src
+WORKDIR /build/src
+RUN make -j"$(nproc)" LIBDIR=/usr/lib USRLIBDIR=/usr/lib NO_ARLIB=1 NO_SOLIB=0 && \
+    make install DESTDIR=/keyutils LIBDIR=/usr/lib USRLIBDIR=/usr/lib NO_ARLIB=1 && \
+    rm -rf /keyutils/usr/share/man /keyutils/usr/sbin /keyutils/usr/bin /keyutils/bin /keyutils/sbin /keyutils/etc /keyutils/lib /keyutils/usr/share/keyutils && \
+    test -f /keyutils/usr/include/keyutils.h
+
+# libcryptsetup (build-time only, for headers: the image uses Hadron's own
+# libcryptsetup.so.12, so keep this version in step with Hadron's): libblockdev's
+# crypto plugin (LUKS) links it, and udisks2
+# requires that plugin. Library only: no cryptsetup binaries, no veritysetup,
+# integritysetup or LUKS2 reencrypt, no ssh-token. The toolchain has the
+# devmapper, json-c, openssl, uuid and blkid it needs.
+FROM toolchain AS cryptsetup
+# renovate: datasource=github-tags depName=mbroz/cryptsetup extractVersion=^v(?<version>\d+(\.\d+)*)$
+ARG CRYPTSETUP_VERSION=2.8.8
+RUN mkdir -p /cryptsetup
+WORKDIR /build
+RUN curl -f --retry 5 --retry-delay 3 --retry-all-errors -L https://www.kernel.org/pub/linux/utils/cryptsetup/v$(echo ${CRYPTSETUP_VERSION} | cut -d. -f1,2)/cryptsetup-${CRYPTSETUP_VERSION}.tar.xz -o c.tar.xz && tar -xf c.tar.xz && rm c.tar.xz && mv cryptsetup-* src
+WORKDIR /build/src
+# configure insists on popt, which only the command-line tools use; they are
+# off, so the check is answered instead of building popt.
+RUN ac_cv_lib_popt_poptConfigFileToString=yes ./configure ${COMMON_CONFIGURE_ARGS} \
+      --disable-cryptsetup --disable-veritysetup --disable-integritysetup \
+      --disable-ssh-token --disable-asciidoc --disable-nls --disable-selinux \
+      --with-crypto_backend=openssl
+RUN make -j"$(nproc)" && make install DESTDIR=/cryptsetup
+
+# libnvme: libblockdev's nvme plugin, which udisks2 requires. Library only;
+# no Python/swig bindings, no D-Bus support, no tests or docs.
+FROM toolchain AS libnvme
+# renovate: datasource=github-releases depName=linux-nvme/libnvme extractVersion=^v(?<version>\d+(\.\d+)*)$
+ARG LIBNVME_VERSION=1.16.2
+RUN mkdir -p /libnvme
+WORKDIR /build
+RUN curl -f --retry 5 --retry-delay 3 --retry-all-errors -L https://github.com/linux-nvme/libnvme/archive/refs/tags/v${LIBNVME_VERSION}.tar.gz -o n.tar.gz && tar -xzf n.tar.gz && rm n.tar.gz && mv libnvme-* src
+WORKDIR /build/src
+RUN pip3 install meson ninja
+RUN meson setup buildDir ${COMMON_MESON_FLAGS} -Dpython=disabled -Dtests=false -Dexamples=false -Dliburing=disabled \
+      -Dlibdbus=disabled -Dkeyutils=disabled -Dopenssl=disabled -Djson-c=enabled
+RUN DESTDIR=/libnvme ninja -C buildDir install
+
+# libblockdev: the storage library udisks2 calls for every disk operation. Only
+# the plugins udisks2's configure requires: fs, loop, mdraid, part, swap, crypto
+# (libcryptsetup, keyutils) and nvme (libnvme). The optional ones are off: lvm,
+# lvm_dbus, btrfs, dm, mpath, nvdimm, smart and the tools (which pull in parted),
+# plus escrow, the Python bindings, GObject introspection and docs. The plugins
+# call the mkfs.* and mdadm binaries at run time; those are not built here.
+FROM toolchain AS libblockdev
+COPY --from=libucontext /libucontext /
+COPY --from=glib2 /glib2 /
+COPY --from=pcre2 /pcre2 /
+COPY --from=gmp /gmp /
+COPY --from=mpfr /mpfr /
+COPY --from=libbytesize /libbytesize /
+COPY --from=keyutils /keyutils /
+COPY --from=cryptsetup /cryptsetup /
+COPY --from=libnvme /libnvme /
+COPY --from=e2fsprogs /e2fsprogs /
+COPY --from=gettext-tools /gettext-tools /
+# renovate: datasource=github-releases depName=storaged-project/libblockdev
+ARG LIBBLOCKDEV_VERSION=3.6.0
+RUN mkdir -p /libblockdev
+WORKDIR /build
+RUN curl -f --retry 5 --retry-delay 3 --retry-all-errors -L https://github.com/storaged-project/libblockdev/releases/download/${LIBBLOCKDEV_VERSION}/libblockdev-${LIBBLOCKDEV_VERSION}.tar.gz -o b.tar.gz && tar -xzf b.tar.gz && rm b.tar.gz && mv libblockdev-* src
+WORKDIR /build/src
+RUN ./configure ${COMMON_CONFIGURE_ARGS} --sysconfdir=/etc \
+      --without-btrfs --without-lvm --without-lvm_dbus --without-dm --without-mpath \
+      --without-nvdimm --without-smart --without-smartmontools --without-tools \
+      --without-escrow --without-python3 --without-gtk-doc --without-s390 --disable-introspection
+RUN make -j"$(nproc)" && make install DESTDIR=/libblockdev && \
+    test -f /libblockdev/usr/lib/libblockdev.so && \
+    test -f /libblockdev/usr/lib/libbd_crypto.so && \
+    test -f /libblockdev/usr/lib/libbd_nvme.so && \
+    test -f /libblockdev/usr/lib/libbd_fs.so
+
+# udisks2: the org.freedesktop.UDisks2 system service that mounts and unmounts
+# removable disks for an unprivileged session (udisksctl, and the file manager
+# and Isotope's Backup page through D-Bus). It installs its D-Bus policy and
+# activation file, udisks2.service, its udev rules and its polkit actions.
+# --libexecdir=/usr/lib puts udisksd in /usr/lib/udisks2 (not in /usr/libexec,
+# a persistent path on Kairos). The daemon needs the libblockdev plugins above;
+# LVM2, iSCSI, Btrfs, LibStorageMgmt, zram and SMART modules are off. The unit,
+# polkit rule and udev rule that enable it on the image are added elsewhere.
+# There is no daemon in the build, so `udisksctl --version` exits with "Error
+# connecting to the udisks daemon" after it has loaded; the check wants that
+# message, and ldd to find every library.
+FROM toolchain AS udisks2
+COPY --from=libucontext /libucontext /
+COPY --from=glib2 /glib2 /
+COPY --from=pcre2 /pcre2 /
+COPY --from=duktape /duktape /
+COPY --from=polkit /polkit /
+COPY --from=gettext-tools /gettext-tools /
+COPY --from=libgudev /libgudev /
+COPY --from=gmp /gmp /
+COPY --from=mpfr /mpfr /
+COPY --from=libbytesize /libbytesize /
+COPY --from=keyutils /keyutils /
+COPY --from=cryptsetup /cryptsetup /
+COPY --from=libnvme /libnvme /
+COPY --from=e2fsprogs /e2fsprogs /
+COPY --from=libblockdev /libblockdev /
+# renovate: datasource=github-releases depName=storaged-project/udisks extractVersion=^udisks-(?<version>\d+(\.\d+)*)$
+ARG UDISKS2_VERSION=2.12.0
+RUN mkdir -p /udisks2
+WORKDIR /build
+RUN curl -f --retry 5 --retry-delay 3 --retry-all-errors -L https://github.com/storaged-project/udisks/releases/download/udisks-${UDISKS2_VERSION}/udisks-${UDISKS2_VERSION}.tar.bz2 -o u.tar.bz2 && tar -xjf u.tar.bz2 && rm u.tar.bz2 && mv udisks-* src
+WORKDIR /build/src
+RUN ./configure ${COMMON_CONFIGURE_ARGS} --sysconfdir=/etc --localstatedir=/var --libexecdir=/usr/lib \
+      --with-systemdsystemunitdir=/usr/lib/systemd/system --with-udevdir=/usr/lib/udev \
+      --with-tmpfilesdir=/usr/lib/tmpfiles.d --with-modloaddir=/usr/lib/modules-load.d \
+      --with-modprobedir=/usr/lib/modprobe.d \
+      --disable-lvm2 --disable-btrfs --disable-iscsi --disable-lsm --disable-zram --disable-smart \
+      --disable-introspection --disable-gtk-doc --disable-man
+RUN make -j"$(nproc)" && make install DESTDIR=/udisks2 && \
+    test -x /udisks2/usr/lib/udisks2/udisksd && \
+    test -f /udisks2/usr/lib/systemd/system/udisks2.service && \
+    test -f /udisks2/usr/share/dbus-1/system.d/org.freedesktop.UDisks2.conf && \
+    test -f /udisks2/usr/share/dbus-1/system-services/org.freedesktop.UDisks2.service && \
+    test -f /udisks2/usr/share/polkit-1/actions/org.freedesktop.UDisks2.policy && \
+    rm -rf /udisks2/usr/share/gtk-doc && \
+    ! LD_LIBRARY_PATH=/udisks2/usr/lib ldd /udisks2/usr/lib/udisks2/udisksd /udisks2/usr/bin/udisksctl | grep 'not found' && \
+    LD_LIBRARY_PATH=/udisks2/usr/lib /udisks2/usr/bin/udisksctl --version 2>&1 | grep -q 'udisks daemon'
+
 FROM toolchain AS libqalculate
 COPY --from=gmp /gmp /
 COPY --from=mpfr /mpfr /
@@ -5124,6 +5273,21 @@ COPY --from=gnome-keyring /gnome-keyring /
 COPY --from=libgudev /libgudev /
 COPY --from=upower /upower /
 COPY --from=power-profiles-daemon /power-profiles-daemon /
+# Removable disks (udisks2 with libblockdev): mounts a USB or NVMe disk for the
+# unprivileged session through D-Bus and polkit. libblockdev's mdraid plugin needs
+# libbytesize, which needs GMP and MPFR; its crypto plugin needs libcryptsetup and
+# keyutils, its nvme plugin libnvme. libext2fs, libdevmapper, libfdisk and libblkid
+# are in the base image, libe2p, glib2 and pcre2 are copied above.
+COPY --from=gmp /gmp /
+COPY --from=mpfr /mpfr /
+COPY --from=libbytesize /libbytesize /
+# libcryptsetup and libkeyutils are not copied: Hadron already ships them and
+# dracut unlocks COS_PERSISTENT_LUKS with them at boot, so libbd_crypto links
+# the base image's copies (the cryptsetup and keyutils stages are build-time
+# headers only; CRYPTSETUP_VERSION must follow Hadron's).
+COPY --from=libnvme /libnvme /
+COPY --from=libblockdev /libblockdev /
+COPY --from=udisks2 /udisks2 /
 # XDG MIME database — required for GLib content-type detection, which appstream/
 # libxmlb rely on to decompress the gzipped Flathub catalog (fixes flatpak search).
 COPY --from=shared-mime-info /shared-mime-info /
@@ -5299,6 +5463,10 @@ RUN chmod 1777 /tmp; \
     for u in upower power-profiles-daemon; do \
       ln -sf /usr/lib/systemd/system/$u.service /etc/systemd/system/multi-user.target.wants/$u.service; \
     done; \
+    # udisks2 mounts removable disks for the session. Same reason: its unit says
+    # WantedBy=graphical.target.
+    systemctl enable udisks2.service 2>/dev/null || true; \
+    ln -sf /usr/lib/systemd/system/udisks2.service /etc/systemd/system/multi-user.target.wants/udisks2.service; \
     # Docker must stay disabled in the baked filesystem: the live installer's
     # /var is itself an overlayfs, so starting dockerd there would make overlay2
     # repeatedly fail its nested-overlay check. The guarded 92_docker.yaml boot
