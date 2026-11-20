@@ -158,10 +158,18 @@ func TestApplyScaleCosmic(t *testing.T) {
 }
 
 func TestApplyScaleFailure(t *testing.T) {
+	// The file is written first, so a failed live change still persists.
+	kept := map[Desktop]string{Sway: ".config/sway/isotope-scale.conf", Niri: ".config/niri/isotope-scale.kdl", I3: ".Xresources"}
 	for _, d := range []Desktop{Sway, Niri, I3, Cosmic} {
 		r := &fakeRunner{out: map[string]string{niriOutputsCmd: niriJSON, cosmicList: cosmicKDL}, fail: []string{"scale", "xrdb", "i3-msg"}}
-		if err := ApplyScale(r, t.TempDir(), d, 2); err == nil {
+		home := t.TempDir()
+		if err := ApplyScale(r, home, d, 2); err == nil {
 			t.Errorf("%s: no error when the command failed", d)
+		}
+		if f, ok := kept[d]; ok {
+			if _, err := os.Stat(filepath.Join(home, f)); err != nil {
+				t.Errorf("%s: not persisted before the live change: %v", d, err)
+			}
 		}
 	}
 }
@@ -198,7 +206,7 @@ func TestNearestScale(t *testing.T) {
 }
 
 func TestLargerText(t *testing.T) {
-	for _, d := range []Desktop{Sway, I3, Niri, Cosmic} {
+	for _, d := range []Desktop{Sway, I3, Niri} {
 		r := &fakeRunner{}
 		home := t.TempDir()
 		if err := SetLargerText(r, home, d, true); err != nil {
@@ -214,6 +222,11 @@ func TestLargerText(t *testing.T) {
 		if !reflect.DeepEqual(r.called(), want) {
 			t.Fatalf("%s: calls = %q", d, r.called())
 		}
+	}
+	// COSMIC's portal answers 1.0 whatever the key says: nothing is set.
+	r := &fakeRunner{}
+	if err := SetLargerText(r, t.TempDir(), Cosmic, true); err != nil || len(r.called()) != 0 {
+		t.Fatalf("COSMIC: err %v, calls %q", err, r.called())
 	}
 	if err := SetLargerText(&fakeRunner{fail: []string{"gsettings"}}, t.TempDir(), Sway, true); err == nil {
 		t.Fatal("no error from a failed gsettings")

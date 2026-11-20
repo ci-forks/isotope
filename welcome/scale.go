@@ -30,7 +30,16 @@ func NearestScale(s float64) float64 {
 }
 
 func run(r Runner, name string, args ...string) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	return runFor(5*time.Second, r, name, args...)
+}
+
+// slow is the time a command that changes the screens gets: `i3-msg
+// restart` answers only when i3 is back, and `cosmic-randr mode` waits for
+// the compositor to apply the mode.
+const slow = 15 * time.Second
+
+func runFor(d time.Duration, r Runner, name string, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), d)
 	defer cancel()
 	out, err := r.Run(ctx, name, args...)
 	if err != nil {
@@ -41,8 +50,8 @@ func run(r Runner, name string, args ...string) ([]byte, error) {
 
 func fmtScale(s float64) string { return strconv.FormatFloat(s, 'f', -1, 64) }
 
-// ApplyScale sets the display scale s now, on every output, and keeps it for
-// the next login:
+// ApplyScale keeps the display scale s for the next login, then sets it now
+// on every output (written first, so a failed live change still persists):
 //
 //   - sway: `swaymsg output * scale` now; `output * scale` in
 //     ~/.config/sway/isotope-scale.conf, which /etc/sway/config includes (so
@@ -60,16 +69,20 @@ func fmtScale(s float64) string { return strconv.FormatFloat(s, 'f', -1, 64) }
 func ApplyScale(r Runner, home string, d Desktop, s float64) error {
 	switch d {
 	case Sway:
-		if _, err := run(r, "swaymsg", "output", "*", "scale", fmtScale(s)); err != nil {
-			return err
-		}
-		return writeFile(filepath.Join(home, ".config", "sway", "isotope-scale.conf"),
+		if err := writeFile(filepath.Join(home, ".config", "sway", "isotope-scale.conf"),
 			"# The display scale, set by Isotope Welcome (Accessibility).\n"+
 				"# /etc/sway/config includes this file.\n"+
-				"output * scale "+fmtScale(s)+"\n")
+				"output * scale "+fmtScale(s)+"\n"); err != nil {
+			return err
+		}
+		_, err := run(r, "swaymsg", "output", "*", "scale", fmtScale(s))
+		return err
 	case Niri:
 		names, err := niriOutputNames(r)
 		if err != nil {
+			return err
+		}
+		if err := writeNiriScale(filepath.Join(home, ".config", "niri", "isotope-scale.kdl"), names, s); err != nil {
 			return err
 		}
 		for _, n := range names {
@@ -77,7 +90,7 @@ func ApplyScale(r Runner, home string, d Desktop, s float64) error {
 				return err
 			}
 		}
-		return writeNiriScale(filepath.Join(home, ".config", "niri", "isotope-scale.kdl"), names, s)
+		return nil
 	case I3:
 		xres := filepath.Join(home, ".Xresources")
 		if err := setXresource(xres, "Xft.dpi", strconv.Itoa(int(math.Round(96*s)))); err != nil {
@@ -86,7 +99,7 @@ func ApplyScale(r Runner, home string, d Desktop, s float64) error {
 		if _, err := run(r, "xrdb", "-merge", xres); err != nil {
 			return err
 		}
-		_, err := run(r, "i3-msg", "restart")
+		_, err := runFor(slow, r, "i3-msg", "restart")
 		return err
 	case Cosmic:
 		outs, err := cosmicOutputs(r)
@@ -97,7 +110,7 @@ func ApplyScale(r Runner, home string, d Desktop, s float64) error {
 			if !o.enabled || o.mirroring || o.width == 0 {
 				continue
 			}
-			if _, err := run(r, "cosmic-randr", "mode",
+			if _, err := runFor(slow, r, "cosmic-randr", "mode",
 				"--scale", fmt.Sprintf("%.2f", s),
 				"--refresh", fmt.Sprintf("%d.%03d", o.refresh/1000, o.refresh%1000),
 				o.name, strconv.Itoa(o.width), strconv.Itoa(o.height)); err != nil {
@@ -173,10 +186,20 @@ const textFactor = "text-scaling-factor"
 
 // SetLargerText makes text 1.25 times larger, or normal again, through
 // org.gnome.desktop.interface text-scaling-factor, which GTK apps and the
-// portal (Flatpak apps) follow live. COSMIC epoch-1.11.0 has no font size
-// setting (its Appearance page has only the interface density, which
-// changes spacing, not text), so COSMIC gets the same key.
+// GTK portal (Flatpak apps) follow live.
+//
+// On COSMIC it does nothing, and the page offers no "Larger text" there:
+// xdg-desktop-portal-cosmic (epoch-1.11.0, src/main.rs read_all/read_one)
+// answers text-scaling-factor with a hardcoded 1.0, and it is the portal
+// Flatpak apps use (cosmic-portals.conf: default=cosmic;gtk); libcosmic apps
+// do not read the key; and COSMIC has no font size setting (its Appearance
+// page has only the interface density, which changes spacing, not text).
+// Only native GTK apps would follow, and COSMIC ships almost none, so the
+// page points to the display scale instead.
 func SetLargerText(r Runner, home string, d Desktop, on bool) error {
+	if d == Cosmic {
+		return nil
+	}
 	v := "1.0"
 	if on {
 		v = "1.25"
