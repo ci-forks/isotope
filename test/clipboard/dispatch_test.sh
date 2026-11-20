@@ -155,6 +155,21 @@ expect "isotope-menu offers Extensions after Update when isotope-ext is there" "
 fake restic 'exit 0'; "$repo/rootfs/usr/bin/isotope-menu"
 expect "isotope-menu offers Backup after Extensions when restic is there" "$(cut -f1 "$T/pick.in" | tr '\n' ' ')" "Apps Wi-Fi Bluetooth Audio Capture Emoji Night light Update Extensions Backup Help Power "
 rm "$B/isotope-ext" "$B/restic"
+# Isotope Welcome: "Install apps" opens its Apps page, "Welcome" the whole
+# flow; both only where the image has it (not on the agent).
+fake isotope-welcome 'exit 0'; "$repo/rootfs/usr/bin/isotope-menu"
+expect "isotope-menu offers Install apps and Welcome when isotope-welcome is there" "$(cut -f1 "$T/pick.in" | tr '\n' ' ')" "Apps Install apps Wi-Fi Bluetooth Audio Capture Emoji Night light Update Welcome Help Power "
+fake isotope 'echo "isotope $*" > "$T/isotope.log"'
+"$repo/rootfs/usr/bin/isotope-menu" "Install apps"
+expect "Install apps runs 'isotope welcome apps'" "$(cat "$T/isotope.log")" "isotope welcome apps"
+"$repo/rootfs/usr/bin/isotope-menu" Welcome
+expect "Welcome runs 'isotope welcome'" "$(cat "$T/isotope.log")" "isotope welcome"
+for d in Sway i3 COSMIC niri; do
+    session "$d"; "$repo/rootfs/usr/bin/isotope-menu"
+    expect "$d: isotope-menu offers Welcome" "$(cut -f1 "$T/pick.in" | grep -c '^Welcome$')" 1
+done
+session Sway
+rm "$B/isotope-welcome" "$B/isotope"
 
 # --- 4. wiring --------------------------------------------------------------
 count() { grep -v '^[[:space:]]*\(#\|//\)' "$2" | grep -ci -- "$1"; }

@@ -245,7 +245,8 @@ vm:                   ## boot the already-installed disk
 # test/server/check-server.sh.
 #
 # Boot-UX assertions (splash, initramfs, branding, ISO overlay), the update
-# tray wiring (test/update/check-tray-wiring.sh), the live-only default
+# tray wiring (test/update/check-tray-wiring.sh), Isotope Welcome
+# (test/welcome/check-welcome-image.sh), the live-only default
 # user (test/accounting/check-default-user.sh) and desktop OpenGL through
 # EGL (test/graphics/check-desktop-gl.sh) for every variant image that
 # is already built locally. Deliberately NOT a dependency of `all`:
@@ -270,6 +271,7 @@ check-boot-ux:
 	    ran=1; \
 	    test/boot-ux/run.sh "$$img" "$$subtitle" || fail=1; \
 	    test/update/check-tray-wiring.sh "$$img" "$${img%%-desktop:*}" || fail=1; \
+	    test/welcome/check-welcome-image.sh "$$img" "$${img%%-desktop:*}" || fail=1; \
 	    test/accounting/check-default-user.sh "$$img" || fail=1; \
 	    test/graphics/check-desktop-gl.sh "$$img" || fail=1; \
 	  else \

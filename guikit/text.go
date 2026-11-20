@@ -95,6 +95,8 @@ var (
 // NewTheme and keeps it for the life of the window.
 type Theme struct {
 	Shaper *text.Shaper
+	// scrim is the tag of Confirm's pointer area.
+	scrim bool
 }
 
 // NewTheme is a theme on the embedded fonts.

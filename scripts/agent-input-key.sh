@@ -36,6 +36,7 @@ AGENT_HARNESS=(
   scripts/ci-containerd-store.sh
   test/agent
   test/boot-ux
+  test/welcome/check-welcome-image.sh
   tools/vm.sh
 )
 

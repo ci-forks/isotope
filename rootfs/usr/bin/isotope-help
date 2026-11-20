@@ -1,6 +1,6 @@
 #!/bin/sh
-# Keyboard shortcut cheat sheet, opened with Super+F1 (and mentioned in the
-# first-login welcome notification). Shared by the variants.
+# Keyboard shortcut cheat sheet, opened with Super+F1 (and from the Shortcuts
+# page of Isotope Welcome). Shared by the variants.
 #
 #   isotope-help            show the sheet in a pager
 #   isotope-help --search   pick a shortcut from a searchable list (isotope-pick)

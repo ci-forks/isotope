@@ -135,6 +135,15 @@ jobs:
           test -z "$(gofmt -l .)"
           go vet -tags nox11,novulkan ./... && go test -tags nox11,novulkan ./...
 
+      - name: welcome tests
+        working-directory: welcome
+        env:
+          CGO_ENABLED: "1"
+          EGL_PLATFORM: surfaceless
+        run: |
+          test -z "$(gofmt -l .)"
+          go vet -tags nox11,novulkan ./... && go test -tags nox11,novulkan ./...
+
       # A rename that moves a file but not the links to it leaves the link
       # dangling, and systemd then refuses the unit with no build error.
       # Absolute targets resolve in the image, not here, so skip them.
@@ -199,7 +208,7 @@ jobs:
           python3 tools/test_gen_shortcuts.py
           python3 tools/gen-shortcuts.py --check
 
-      - name: Notification keys and the welcome click
+      - name: Notification keys
         run: test/notify/check-notify-keys.sh
       # The emoji picker with a fake picker, clipboard and notifier, the
       # list generator on a fixture, and the Super+; binding per variant.
@@ -232,8 +241,8 @@ jobs:
           grep -q '"com.system76.CosmicFiles"' "$dock"
           ! grep -qi firefox "$dock"
 
-      # The selection and stamp logic, against a fake flatpak in Alpine.
-      - name: First-run app picker
+      # The old name of the app picker opens Isotope Welcome's Apps page.
+      - name: isotope-first-run-apps link
         run: test/first-run/check-first-run-apps.sh
 
       # Docker runs it in a throwaway Alpine container, with fake tools.

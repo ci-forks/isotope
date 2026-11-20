@@ -32,6 +32,9 @@ const (
 	// actionRecovery covers the disk recovery key: reading which keyslots
 	// exist, adding a new key and resealing to the TPM.
 	actionRecovery = "io.kairos.isotope-update.recovery"
+	// actionSettings covers machine settings the Welcome app changes: the
+	// system language.
+	actionSettings = "io.kairos.isotope-update.settings"
 )
 
 // busIntrospection describes the interface for busctl, d-feet and friends.
@@ -73,6 +76,7 @@ const busIntrospection = introspect.IntrospectDeclarationString + `<node>
     <method name="RecoveryStatus"><arg name="status" type="a{sv}" direction="out"/></method>
     <method name="RecoveryReseal"><arg name="secret" type="h" direction="in"/></method>
     <method name="RecoveryNewKey"><arg name="secrets" type="h" direction="in"/></method>
+    <method name="SetLocale"><arg name="lang" type="s" direction="in"/></method>
     <signal name="StateChanged"><arg name="status" type="a{sv}"/></signal>
     <signal name="Progress"><arg name="line" type="s"/></signal>
   </interface>` + introspect.IntrospectDataString + `</node>`

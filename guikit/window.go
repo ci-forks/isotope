@@ -5,11 +5,14 @@ import (
 	"math"
 	"time"
 
+	"gioui.org/io/event"
 	"gioui.org/io/key"
+	"gioui.org/io/pointer"
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
+	"gioui.org/unit"
 	"gioui.org/widget"
 )
 
@@ -159,20 +162,9 @@ func (th *Theme) Sidebar(gtx layout.Context, s Steps) layout.Dimensions {
 				)
 			}),
 			layout.Rigid(layout.Spacer{Height: 28}.Layout),
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				var kids []layout.FlexChild
-				for i, name := range s.Names {
-					if i > 0 {
-						kids = append(kids, layout.Rigid(layout.Spacer{Height: 4}.Layout))
-					}
-					kids = append(kids, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						return th.stepRow(gtx, name, i, s.Current)
-					}))
-				}
-				return layout.Flex{Axis: layout.Vertical}.Layout(gtx, kids...)
-			}),
+			// The steps take the room between the title and the note.
 			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-				return layout.Dimensions{Size: gtx.Constraints.Min}
+				return th.stepList(gtx, s)
 			}),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				return th.Label(gtx, StTiny, ColDim, s.Note)
@@ -181,7 +173,38 @@ func (th *Theme) Sidebar(gtx layout.Context, s Steps) layout.Dimensions {
 	})
 }
 
-func (th *Theme) stepRow(gtx layout.Context, name string, i, cur int) layout.Dimensions {
+// stepList draws the steps from the top of the room it has. When they do
+// not fit (many steps, a large scale on a small screen), the rows close up;
+// if even that is too tall, the list is cut at the bottom of its room
+// rather than drawn over the note.
+func (th *Theme) stepList(gtx layout.Context, s Steps) layout.Dimensions {
+	room := gtx.Constraints.Max.Y
+	gtx.Constraints.Min = image.Point{}
+	pad, gap := unit.Dp(9), unit.Dp(4)
+	if n := len(s.Names); n > 0 {
+		m := op.Record(gtx.Ops)
+		row := th.stepRow(gtx, s.Names[0], 0, s.Current, pad).Size.Y
+		m.Stop()
+		if n*row+(n-1)*gtx.Dp(gap) > room {
+			pad, gap = 2, 0
+		}
+	}
+	defer clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, room)}.Push(gtx.Ops).Pop()
+	var kids []layout.FlexChild
+	for i, name := range s.Names {
+		if i > 0 {
+			kids = append(kids, layout.Rigid(layout.Spacer{Height: gap}.Layout))
+		}
+		kids = append(kids, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			gtx.Constraints.Max.Y = 1 << 24
+			return th.stepRow(gtx, name, i, s.Current, pad)
+		}))
+	}
+	layout.Flex{Axis: layout.Vertical}.Layout(gtx, kids...)
+	return layout.Dimensions{Size: gtx.Constraints.Max}
+}
+
+func (th *Theme) stepRow(gtx layout.Context, name string, i, cur int, pad unit.Dp) layout.Dimensions {
 	gtx.Constraints.Min.X = gtx.Constraints.Max.X
 	st, col := StBody, ColDim
 	switch {
@@ -191,7 +214,7 @@ func (th *Theme) stepRow(gtx layout.Context, name string, i, cur int) layout.Dim
 		st, col = StBody600, ColText
 	}
 	m := op.Record(gtx.Ops)
-	dims := layout.Inset{Top: 9, Bottom: 9, Left: 10, Right: 10}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+	dims := layout.Inset{Top: pad, Bottom: pad, Left: 10, Right: 10}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				switch {
@@ -349,4 +372,56 @@ func WindowKeys(gtx layout.Context, scale *float32, back func()) {
 			*scale = 1
 		}
 	}
+}
+
+// Confirm is a question over the window: the window dimmed, and in the
+// middle a card with title, the paragraph body and the buttons at its
+// bottom right. It draws over all of gtx and takes the pointer, so the page
+// under it cannot be clicked; the app gives the keyboard focus to one of
+// the buttons.
+func (th *Theme) Confirm(gtx layout.Context, title, body string, actions []Action) layout.Dimensions {
+	size := gtx.Constraints.Max
+	r := image.Rectangle{Max: size}
+	FillRect(gtx, r, Alpha(ColKeyBox, 0.72))
+	area := clip.Rect(r).Push(gtx.Ops)
+	event.Op(gtx.Ops, &th.scrim)
+	for {
+		if _, ok := gtx.Event(pointer.Filter{Target: &th.scrim, Kinds: pointer.Press | pointer.Release | pointer.Scroll, ScrollY: pointer.ScrollRange{Min: -1 << 20, Max: 1 << 20}}); !ok {
+			break
+		}
+	}
+	area.Pop()
+	gtx.Constraints = layout.Exact(size)
+	return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		w := min(Dp(gtx, 460), size.X-Dp(gtx, 48))
+		gtx.Constraints = layout.Constraints{Min: image.Pt(w, 0), Max: image.Pt(w, size.Y)}
+		b := Box{Radius: 14, Fill: ColWindow, Border: Over(ColWindow, ColText, 0.12), BorderWidth: 1}
+		return b.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			return layout.UniformInset(24).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				gtx.Constraints.Min.X = gtx.Constraints.Max.X
+				kids := []layout.FlexChild{
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions { return th.Label(gtx, StTitle, ColText, title) }),
+					VGap(10),
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions { return th.LabelLines(gtx, StBody, ColText2, 1.5, body) }),
+					VGap(22),
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						gtx.Constraints.Min.X = gtx.Constraints.Max.X
+						bs := []layout.FlexChild{layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+							return layout.Dimensions{Size: image.Pt(gtx.Constraints.Min.X, 0)}
+						})}
+						for i, a := range actions {
+							if i > 0 {
+								bs = append(bs, layout.Rigid(layout.Spacer{Width: 10}.Layout))
+							}
+							bs = append(bs, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+								return th.Button(gtx, a.Click, a.Kind, a.Label, !a.Disabled)
+							}))
+						}
+						return layout.Flex{Alignment: layout.Middle}.Layout(gtx, bs...)
+					}),
+				}
+				return layout.Flex{Axis: layout.Vertical}.Layout(gtx, kids...)
+			})
+		})
+	})
 }

@@ -1,0 +1,11 @@
+# The curated apps of the Welcome flow: group|Flatpak ID|label|preselected.
+# Browsers are one choice (or none); essentials are any number.
+browser|org.mozilla.firefox|Firefox|on
+browser|org.chromium.Chromium|Chromium|off
+browser|com.brave.Browser|Brave|off
+browser|io.gitlab.librewolf-community|LibreWolf|off
+extra|org.gnome.Loupe|Image viewer (Loupe)|on
+extra|org.videolan.VLC|Media player (VLC)|on
+extra|org.gnome.TextEditor|Text editor (GNOME Text Editor)|on
+extra|org.gnome.Papers|PDF viewer (Papers)|on
+extra|com.github.tchx84.Flatseal|Flatpak permissions (Flatseal)|off

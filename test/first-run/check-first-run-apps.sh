@@ -1,16 +1,15 @@
 #!/bin/sh
-# Exercise isotope-first-run-apps (the first-run app picker) against fake
-# flatpak, nm-online, busctl and terminal programs, in an Alpine container,
-# so busybox sh runs the script the way a minimal POSIX shell would.
+# isotope-first-run-apps is the old name of the first-run app picker, kept so
+# habits, menus and old configs keep working. By hand it opens Isotope
+# Welcome's Apps page (`isotope welcome apps`); as the login hook of a config
+# from before Isotope Welcome (`--login`) it is `isotope-welcome --login`,
+# which opens nothing once the user went through it or skipped it. The login
+# gate and its stamps are Isotope Welcome's (welcome/, its Go tests).
+# Runs in an Alpine container, with fake isotope and isotope-welcome that log
+# their arguments.
 #
 #   test/first-run/check-first-run-apps.sh            run in alpine (docker)
-#   test/first-run/check-first-run-apps.sh --inner    run here (used by the
-#                                                     container; needs a
-#                                                     throwaway HOME)
-#
-# It checks the selection logic (defaults, one browser, toggles, installed
-# apps), the stamp (written on completion and on skip, not when nothing
-# installed), and the --login hook (stamp, network, Flathub, COSMIC).
+#   test/first-run/check-first-run-apps.sh --inner    run here
 set -eu
 
 if [ "${1:-}" != --inner ]; then
@@ -20,164 +19,26 @@ if [ "${1:-}" != --inner ]; then
 fi
 
 src=${SRC:-/src}
-script="$src/rootfs/usr/bin/isotope-first-run-apps"
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
-bin="$work/bin"
-mkdir -p "$bin"
-log="$work/log"
-
-# Fakes. Each records what it was asked into $log.
-cat > "$bin/flatpak" <<'EOF'
-#!/bin/sh
-echo "flatpak $*" >> "$FAKE_LOG"
-case "$*" in
-    "--user remotes "*) printf '%s\n' "${FAKE_REMOTES-flathub	}" ;;
-    "list "*) printf '%s\n' "${FAKE_INSTALLED:-}" ;;
-    "--user install "*)
-        for id; do :; done
-        case " ${FAKE_FAIL:-} " in *" $id "*) exit 1 ;; esac ;;
-esac
-exit 0
-EOF
-cat > "$bin/nm-online" <<'EOF'
-#!/bin/sh
-echo "nm-online $*" >> "$FAKE_LOG"
-exit "${FAKE_NM:-0}"
-EOF
-cat > "$bin/busctl" <<'EOF'
-#!/bin/sh
-shift 6
-echo "notify $5" >> "$FAKE_LOG"
-EOF
-cat > "$bin/fake-term" <<'EOF'
-#!/bin/sh
-echo "terminal $*" >> "$FAKE_LOG"
-EOF
-chmod +x "$bin"/*
-cp "$script" "$bin/isotope-first-run-apps"
-
-printf 'DESKTOP_NAME=Sway\nTERMINAL_EXEC="fake-term -e"\n' > "$work/session"
-export FAKE_LOG="$log" PATH="$bin:$PATH" ISOTOPE_SESSION_FILE="$work/session"
+mkdir -p "$work/bin"
+printf '#!/bin/sh\necho "isotope $*" > "%s/log"\n' "$work" > "$work/bin/isotope"
+printf '#!/bin/sh\necho "isotope-welcome $*" > "%s/log"\n' "$work" > "$work/bin/isotope-welcome"
+chmod +x "$work/bin/isotope" "$work/bin/isotope-welcome"
+PATH="$work/bin:$PATH"
 
 fail=0
-pass() { echo "PASS: $1"; }
-bad() { echo "FAIL: $1" >&2; fail=1; }
-
-# reset: a fresh HOME and log, and no fake knobs.
-reset() {
-    HOME="$work/home"
-    rm -rf "$HOME" && mkdir -p "$HOME"
-    : > "$log"
-    unset FAKE_INSTALLED FAKE_FAIL FAKE_NM FAKE_REMOTES XDG_STATE_HOME
-    export HOME
-}
-stamp() { cat "$HOME/.local/state/isotope/first-run-apps" 2>/dev/null || echo none; }
-installs() { sed -n 's/^flatpak --user install --assumeyes flathub //p' "$log" | tr '\n' ' '; }
-
-# ui INPUT: run the checklist with INPUT on stdin.
-ui() { printf '%b' "$1" | isotope-first-run-apps --ui > "$work/out" 2>&1; }
-
-has() { # PATTERN FILE NAME
-    if grep -q "$1" "$2"; then pass "$3"; else bad "$3"; fi
-}
-expect() { # NAME GOT WANT
-    if [ "$2" = "$3" ]; then pass "$1"; else bad "$1: got '$2', want '$3'"; fi
-}
-
-reset; ui '\n'
-expect "Enter installs the defaults" "$(installs)" \
-    "org.mozilla.firefox org.gnome.Loupe org.videolan.VLC org.gnome.TextEditor org.gnome.Papers "
-expect "completion writes the stamp" "$(stamp)" completed
-has '^notify Apps installed' "$log" "final notification"
-
-reset; ui '2 9\n\n'
-expect "a second browser replaces the first; Flatseal adds" "$(installs)" \
-    "org.chromium.Chromium org.gnome.Loupe org.videolan.VLC org.gnome.TextEditor org.gnome.Papers com.github.tchx84.Flatseal "
-
-reset; ui '1\n\n'
-expect "toggling the picked browser drops it" "$(installs)" \
-    "org.gnome.Loupe org.videolan.VLC org.gnome.TextEditor org.gnome.Papers "
-
-reset; ui '0 5 6 7 8\n\n'
-expect "no browser, no essentials: nothing installed" "$(installs)" ""
-expect "an empty choice still completes" "$(stamp)" completed
-
-reset; ui 'abc 99 -1\n\n'
-expect "bad input is ignored" "$(installs)" \
-    "org.mozilla.firefox org.gnome.Loupe org.videolan.VLC org.gnome.TextEditor org.gnome.Papers "
-
-reset; ui 's\n'
-expect "skip installs nothing" "$(installs)" ""
-expect "skip writes the stamp" "$(stamp)" skipped
-
-reset; ui ''
-expect "end of input dismisses" "$(stamp)" skipped
-
-reset; FAKE_INSTALLED="org.mozilla.firefox
-org.gnome.Loupe"; export FAKE_INSTALLED; ui '\n'
-expect "installed apps are not installed again, nor a second browser" "$(installs)" \
-    "org.videolan.VLC org.gnome.TextEditor org.gnome.Papers "
-has 'Firefox (installed)' "$work/out" "installed apps are marked"
-
-reset; FAKE_FAIL="org.mozilla.firefox org.gnome.Loupe org.videolan.VLC org.gnome.TextEditor org.gnome.Papers"
-export FAKE_FAIL; ui '\n'
-expect "all installs failed: no stamp" "$(stamp)" none
-has '^notify Apps did not install' "$log" "failure notification"
-
-reset; FAKE_FAIL="org.videolan.VLC"; export FAKE_FAIL; ui '\n'
-expect "some installs failed: stamp" "$(stamp)" completed
-has '^notify Some apps did not install' "$log" "partial notification"
-
-reset; XDG_STATE_HOME="$work/xdg"; export XDG_STATE_HOME; ui 's\n'
-expect "the stamp follows XDG_STATE_HOME" "$(cat "$work/xdg/isotope/first-run-apps")" skipped
-
-# --- the login hook ---
-reset; isotope-first-run-apps --login
-expect "login opens the checklist in the session terminal" "$(grep '^terminal' "$log")" \
-    "terminal -e isotope-first-run-apps --ui"
-
-reset; mkdir -p "$HOME/.local/state/isotope"; echo skipped > "$HOME/.local/state/isotope/first-run-apps"
-isotope-first-run-apps --login
-expect "login does nothing after the stamp" "$(cat "$log")" ""
-
-# Isotope was Hadron Desktop: a user who picked apps before the rename is not
-# asked again.
-reset; mkdir -p "$HOME/.local/state/hadron"; echo completed > "$HOME/.local/state/hadron/first-run-apps"
-isotope-first-run-apps --login
-expect "login does nothing after a stamp from before the rename" "$(cat "$log")" ""
-expect "the old stamp is copied" "$(stamp)" completed
-
-reset; FAKE_NM=1; export FAKE_NM; isotope-first-run-apps --login
-expect "offline: no terminal" "$(grep -c '^terminal' "$log" || :)" 0
-expect "offline: no stamp" "$(stamp)" none
-has '^notify No network' "$log" "offline notification"
-
-reset; FAKE_REMOTES="flathub	disabled"; export FAKE_REMOTES; isotope-first-run-apps --login
-expect "disabled Flathub: no terminal" "$(grep -c '^terminal' "$log" || :)" 0
-has '^notify Flathub is not ready' "$log" "Flathub notification"
-
-reset; FAKE_REMOTES=""; export FAKE_REMOTES; isotope-first-run-apps --login
-expect "no Flathub remote: no terminal" "$(grep -c '^terminal' "$log" || :)" 0
-
-# COSMIC: wait for cosmic-initial-setup while it runs, then go on.
-reset
-printf 'DESKTOP_NAME=COSMIC\nTERMINAL_EXEC="fake-term -e"\n' > "$work/cosmic"
-mkdir -p "$work/proc/42"; echo cosmic-initial- > "$work/proc/42/comm"
-( sleep 3; rm -rf "$work/proc/42" ) &
-start=$(date +%s)
-ISOTOPE_SESSION_FILE="$work/cosmic" ISOTOPE_PROC="$work/proc" ISOTOPE_FIRST_RUN_SETUP_GRACE=0 \
-    isotope-first-run-apps --login
-waited=$(( $(date +%s) - start ))
-if [ "$waited" -ge 2 ]; then
-    pass "COSMIC: waits while cosmic-initial-setup runs"
-else
-    bad "COSMIC: did not wait for cosmic-initial-setup ($waited s)"
-fi
-expect "COSMIC: then opens the checklist" "$(grep -c '^terminal' "$log")" 1
-
-reset; mkdir -p "$HOME/.config"; : > "$HOME/.config/cosmic-initial-setup-done"
-ISOTOPE_SESSION_FILE="$work/cosmic" isotope-first-run-apps --login
-expect "COSMIC: setup done, no wait" "$(grep -c '^terminal' "$log")" 1
-
+# ARGS|WANT
+for c in "|isotope welcome apps" "--login|isotope-welcome --login"; do
+    args=${c%%|*} want=${c#*|}
+    : > "$work/log"
+    # shellcheck disable=SC2086
+    sh "$src/rootfs/usr/bin/isotope-first-run-apps" $args
+    got=$(cat "$work/log")
+    if [ "$got" = "$want" ]; then
+        echo "PASS: isotope-first-run-apps $args runs '$want'"
+    else
+        echo "FAIL: isotope-first-run-apps $args ran [$got], want [$want]" >&2; fail=1
+    fi
+done
 exit "$fail"

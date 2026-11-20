@@ -35,6 +35,9 @@ on:
       - "tools/stage-key.py"
       - "test/graphics/**"
       - "test/boot-ux/check-boot-units.sh"
+      - "test/welcome/**"
+      - "welcome/**"
+      - "guikit/**"
       - "scripts/ci-containerd-store.sh"
       - ".github/workflows/desktop-images.yml"
   workflow_dispatch:
@@ -84,6 +87,7 @@ jobs:
             for f in "${files[@]}"; do
               case "$f" in
                 Dockerfile|Makefile|rootfs/*|test/graphics/*|test/boot-ux/check-boot-units.sh|tools/stage-key.py|\
+                test/welcome/*|welcome/*|guikit/*|\
                 scripts/ci-containerd-store.sh|.github/workflows/desktop-images.yml)
                   for d in "${all[@]}"; do want[$d]=1; done ;;
                 rootfs-sway/*) want[sway]=1 ;;
@@ -228,3 +232,11 @@ jobs:
         if: steps.prebuilt.outputs.skip != 'true'
         shell: bash
         run: test/boot-ux/check-boot-units.sh "${DESKTOP}-desktop:dev"
+
+      # Isotope Welcome: the variant's build, the session line that starts it
+      # at first login, its window rule; no cosmic-initial-setup on COSMIC.
+      # The same step as in release.yml.
+      - name: Check Isotope Welcome
+        if: steps.prebuilt.outputs.skip != 'true'
+        shell: bash
+        run: test/welcome/check-welcome-image.sh "${DESKTOP}-desktop:dev" "$DESKTOP"

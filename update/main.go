@@ -59,6 +59,9 @@ Commands:
   backup [command]  back up this machine to a USB disk or a server; see
                     "isotope backup help"
   restore           restore a backup; see "isotope restore help"
+  welcome [PAGE]    Isotope Welcome, the first-login setup, again; or one
+                    of its pages: apps, language, network, appearance,
+                    accessibility, shortcuts
   help              this text
 
 Started by the desktop session and by systemd, not by hand:
@@ -125,6 +128,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return cmdBackup(args, stdin, stdout, stderr)
 	case "restore":
 		return cmdRestore(args, stdin, stdout, stderr)
+	case "welcome":
+		return cmdWelcome(args, stderr)
 	case "daemon":
 		return cmdDaemon(args, stderr)
 	case "efi-boot-entry":

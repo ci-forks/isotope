@@ -291,13 +291,11 @@ layout {
 // Noctalia is the shell: bar, dock, launcher, notifications, lock screen.
 // isotope-noctalia starts it with Isotope's defaults (the polkit prompt).
 spawn-at-startup "isotope-noctalia"
-// First-login welcome, and the update icon in Noctalia's tray, which shows
-// when a new Isotope is out and installs it.
-spawn-at-startup "isotope-welcome"
+// Isotope Welcome, the first-login flow (once per user: it exits at once
+// when the user went through it or skipped it), and the update icon in
+// Noctalia's tray, which shows when a new Isotope is out and installs it.
+spawn-at-startup "isotope-welcome" "--login"
 spawn-at-startup "isotope-update" "tray"
-// First-run app picker (a browser and essentials from Flathub), once per
-// user, after the network is up.
-spawn-at-startup "isotope-first-run-apps" "--login"
 // Turn Noctalia's night light back on if the user had it on in an earlier
 // session; Noctalia itself starts with it off (noctalia-defaults.toml).
 spawn-at-startup "isotope-night-light" "restore"
@@ -314,7 +312,7 @@ environment {
 
 hotkey-overlay {
     // Uncomment this line to disable the "Important Hotkeys" pop-up at startup.
-    // Isotope: skipped; the welcome notification points at Super+F1 instead,
+    // Isotope: skipped; Isotope Welcome's Shortcuts page shows Super+F1 instead,
     // and Super+Shift+/ still opens this pop-up.
     skip-at-startup
 }
@@ -399,6 +397,12 @@ window-rule {
 // Sized by foot itself (-W in the binding), so less never sees a resize.
 window-rule {
     match app-id="floatterm"
+    open-floating true
+}
+
+// Isotope Welcome is a dialog-sized window, not a column.
+window-rule {
+    match app-id="^isotope-welcome$"
     open-floating true
 }
 
@@ -767,3 +771,8 @@ binds {
     // moving the mouse or pressing any other key.
     Mod+Shift+P { power-off-monitors; }
 }
+
+// The display scale the Welcome window's Accessibility page sets: an `output`
+// block per screen. niri reloads it when it changes; a missing file is
+// skipped. Not ~/.config/niri/config.kdl, which would replace this whole file.
+include optional=true "~/.config/niri/isotope-scale.kdl"
