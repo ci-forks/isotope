@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestParseArgs(t *testing.T) {
 	for _, a := range []string{"", "--login", "apps", "backup", "language", "network", "appearance", "accessibility", "shortcuts"} {
@@ -16,5 +20,33 @@ func TestParseArgs(t *testing.T) {
 		if _, ok := ParseArgs(bad); ok {
 			t.Errorf("%v accepted", bad)
 		}
+	}
+}
+
+func TestVersionLine(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "release")
+	if err := os.WriteFile(p, []byte("FLAVOR=cosmic\nGPU=full\nVERSION=v0.0.25\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := versionLine(p); got != "Isotope v0.0.25 · cosmic" {
+		t.Errorf("versionLine = %q", got)
+	}
+	if got := versionLine(filepath.Join(t.TempDir(), "none")); got != "Isotope" {
+		t.Errorf("no file: %q", got)
+	}
+}
+
+func TestFlowFor(t *testing.T) {
+	if got := flowFor(PageAll, Niri).Pages(); len(got) != len(Pages(Niri)) {
+		t.Errorf("PageAll: %v", got)
+	}
+	if got := flowFor(PageLogin, Cosmic).Pages(); len(got) != len(Pages(Cosmic)) {
+		t.Errorf("PageLogin: %v", got)
+	}
+	if got := flowFor(PageShortcuts, Sway).Pages(); len(got) != 1 || got[0] != PShortcuts {
+		t.Errorf("shortcuts: %v", got)
+	}
+	if got := flowFor(PageApps, Sway).Pages(); len(got) != 1 || got[0] != PApps {
+		t.Errorf("apps: %v", got)
 	}
 }
