@@ -135,6 +135,15 @@ jobs:
           test -z "$(gofmt -l .)"
           go vet -tags nox11,novulkan ./... && go test -tags nox11,novulkan ./...
 
+      - name: welcome tests
+        working-directory: welcome
+        env:
+          CGO_ENABLED: "1"
+          EGL_PLATFORM: surfaceless
+        run: |
+          test -z "$(gofmt -l .)"
+          go vet -tags nox11,novulkan ./... && go test -tags nox11,novulkan ./...
+
       # A rename that moves a file but not the links to it leaves the link
       # dangling, and systemd then refuses the unit with no build error.
       # Absolute targets resolve in the image, not here, so skip them.
