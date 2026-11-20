@@ -26,7 +26,10 @@ func TestColorSchemeSway(t *testing.T) {
 	if err := SetColorScheme(r, home, Sway, false); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"gsettings set org.gnome.desktop.interface color-scheme prefer-light"}
+	want := []string{
+		"gsettings set org.gnome.desktop.interface color-scheme prefer-light",
+		"gsettings set org.gnome.desktop.interface gtk-theme Adwaita",
+	}
 	if !reflect.DeepEqual(r.called(), want) {
 		t.Fatalf("calls = %v", r.called())
 	}
@@ -49,7 +52,7 @@ func TestColorSchemeNewIni(t *testing.T) {
 	}
 }
 
-func TestColorSchemeCosmic(t *testing.T) {
+func TestColorSchemeCosmicWritesOnlyIsDark(t *testing.T) {
 	home := t.TempDir()
 	r := &fakeRunner{}
 	if err := SetColorScheme(r, home, Cosmic, false); err != nil {
@@ -58,8 +61,28 @@ func TestColorSchemeCosmic(t *testing.T) {
 	if got := readFile(t, filepath.Join(home, ".config/cosmic/com.system76.CosmicTheme.Mode/v1/is_dark")); got != "false" {
 		t.Fatalf("is_dark = %q", got)
 	}
+	if len(r.called()) != 0 {
+		t.Fatalf("COSMIC ran %v: its daemon sets gsettings", r.called())
+	}
+	if _, err := os.Stat(filepath.Join(home, ".config", "gtk-3.0")); err == nil {
+		t.Fatal("COSMIC wrote GTK settings")
+	}
 	if ReadColorScheme(r, home, Cosmic) {
 		t.Fatal("ReadColorScheme says dark after light")
+	}
+}
+
+func TestColorSchemeDarkSetsAdwaitaDark(t *testing.T) {
+	r := &fakeRunner{}
+	if err := SetColorScheme(r, t.TempDir(), Niri, true); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"gsettings set org.gnome.desktop.interface color-scheme prefer-dark",
+		"gsettings set org.gnome.desktop.interface gtk-theme Adwaita-dark",
+	}
+	if !reflect.DeepEqual(r.called(), want) {
+		t.Fatalf("calls = %v", r.called())
 	}
 }
 
@@ -80,31 +103,5 @@ func TestReadColorScheme(t *testing.T) {
 	}
 	if !ReadColorScheme(&fakeRunner{fail: []string{"gsettings"}}, t.TempDir(), Sway) {
 		t.Error("an unreadable scheme must default to dark")
-	}
-}
-
-func TestCosmicAccent(t *testing.T) {
-	home := t.TempDir()
-	if err := SetCosmicAccent(home, Accents()[0]); err != nil {
-		t.Fatal(err)
-	}
-	for _, id := range []string{"Dark", "Light"} {
-		p := filepath.Join(home, ".config/cosmic/com.system76.CosmicTheme."+id+".Builder/v2/accent")
-		if got := readFile(t, p); got != `Some("#63D0DFFF")` {
-			t.Errorf("%s accent = %q", id, got)
-		}
-	}
-}
-
-func TestCosmicFrosted(t *testing.T) {
-	home := t.TempDir()
-	if err := SetCosmicFrosted(home, true); err != nil {
-		t.Fatal(err)
-	}
-	for _, k := range []string{"frosted_applets", "frosted_panel", "frosted_system_interface", "frosted_windows"} {
-		p := filepath.Join(home, ".config/cosmic/com.system76.CosmicTheme.Dark.Builder/v2", k)
-		if got := readFile(t, p); got != "true" {
-			t.Errorf("%s = %q", k, got)
-		}
 	}
 }

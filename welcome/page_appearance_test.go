@@ -14,6 +14,7 @@ func appearanceUI(t *testing.T, d Desktop, r *fakeRunner) (*UI, *recorder, *appe
 	to(u, PAppearance)
 	p := u.page().(*appearancePage)
 	p.start()
+	p.wait()
 	return u, rec, p
 }
 
@@ -30,38 +31,35 @@ func TestAppearanceShowsWhatIsSet(t *testing.T) {
 }
 
 func TestAppearanceContinueApplies(t *testing.T) {
-	r := &fakeRunner{}
-	u, _, p := appearanceUI(t, Cosmic, r)
-	p.dark, p.pick, p.frosted, p.frostedSet = false, 1, true, true
+	u, _, p := appearanceUI(t, Cosmic, &fakeRunner{})
+	p.choose(false)
 	p.Continue()
-	if u.flow.Current() != PLayout {
-		t.Fatalf("page %s", u.flow.Current())
+	p.wait()
+	p.mu.Lock()
+	done := p.applied
+	p.mu.Unlock()
+	if !done {
+		t.Fatalf("not applied: %q", p.err)
 	}
-	h := u.hooks.Home
-	for path, want := range map[string]string{
-		".config/cosmic/com.system76.CosmicTheme.Mode/v1/is_dark":               "false",
-		".config/cosmic/com.system76.CosmicTheme.Light.Builder/v2/accent":       `Some("#A1C0EBFF")`,
-		".config/cosmic/com.system76.CosmicTheme.Dark.Builder/v2/frosted_panel": "true",
-	} {
-		if got := readFile(t, filepath.Join(h, path)); got != want {
-			t.Errorf("%s = %q, want %q", path, got, want)
-		}
-	}
-}
-
-func TestAppearanceSwayLeavesCosmicAlone(t *testing.T) {
-	u, _, p := appearanceUI(t, Sway, &fakeRunner{})
-	p.pick, p.frostedSet = 2, true // not reachable on sway, but must not write
-	p.Continue()
-	if _, err := os.Stat(filepath.Join(u.hooks.Home, ".config", "cosmic")); err == nil {
-		t.Fatal("sway wrote COSMIC files")
+	if got := readFile(t, filepath.Join(u.hooks.Home, ".config/cosmic/com.system76.CosmicTheme.Mode/v1/is_dark")); got != "false" {
+		t.Errorf("is_dark = %q", got)
 	}
 }
 
 func TestAppearanceFailureStaysWithAnError(t *testing.T) {
 	u, _, p := appearanceUI(t, Sway, &fakeRunner{fail: []string{"gsettings set"}})
 	p.Continue()
-	if u.flow.Current() != PAppearance || !strings.Contains(p.err, "Could not change the appearance") {
-		t.Fatalf("page %s, err %q", u.flow.Current(), p.err)
+	p.wait()
+	if u.flow.Current() != PAppearance || !strings.Contains(p.err, "Could not change the appearance") || p.applied {
+		t.Fatalf("page %s, err %q, applied %v", u.flow.Current(), p.err, p.applied)
+	}
+}
+
+func TestAppearanceSwayLeavesCosmicAlone(t *testing.T) {
+	u, _, p := appearanceUI(t, Sway, &fakeRunner{})
+	p.Continue()
+	p.wait()
+	if _, err := os.Stat(filepath.Join(u.hooks.Home, ".config", "cosmic")); err == nil {
+		t.Fatal("sway wrote COSMIC files")
 	}
 }
