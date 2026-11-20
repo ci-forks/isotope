@@ -129,6 +129,27 @@ if [ "$DESKTOP" = cosmic ]; then
         "own=\$(sed -n 's/^id //p' $L/layout.kdl); test -n \"\$own\"; for f in /usr/share/cosmic-layouts/*/layout.kdl; do [ \$f = $L/layout.kdl ] && continue; o=\$(sed -n 's/^id //p' \$f); [ \"\$own\" -lt \"\$o\" ] || exit 1; done; test \$(ls -d /usr/share/cosmic-layouts/*/ | wc -l) -gt 1"
 fi
 
+# --- COSMIC top bar: the Isotope mark and the focused app (applets/) --------
+if [ "$DESKTOP" = cosmic ]; then
+    B=/usr/bin/isotope-applet-mark
+    check "isotope-applet-mark is installed and links (ldd clean)" \
+        "test -x $B && ldd $B >/dev/null && ! ldd $B 2>&1 | grep -q 'not found'"
+    check "isotope-applet-mark is built with the patched libcosmic (window_controls_left)" \
+        "grep -qa window_controls_left $B"
+    check "the mark's icon is a symbolic icon in hicolor" \
+        "grep -q '<svg' /usr/share/icons/hicolor/scalable/apps/io.kairos.Isotope.Mark-symbolic.svg"
+    check "the mark's applet entry runs isotope-applet-mark, a panel applet with the host display" \
+        "D=/usr/share/applications/io.kairos.Isotope.Mark.desktop; grep -qx 'Exec=isotope-applet-mark' \$D && grep -qx 'X-CosmicApplet=true' \$D && grep -qx 'X-HostWaylandDisplay=true' \$D"
+    check "the mark opens isotope-menu, which is on the image" \
+        "grep -qa isotope-menu $B && test -x /usr/bin/isotope-menu"
+    check "the top bar starts with the mark, then the workspaces" \
+        "grep -q '^Some((\[\"io.kairos.Isotope.Mark\", \"com.system76.CosmicPanelWorkspacesButton\"' /usr/share/cosmic/com.system76.CosmicPanel.Panel/v1/plugins_wings"
+    # cosmic-panel starts an applet only if it finds <id>.desktop; a missing one
+    # leaves a silent gap in the bar or the dock.
+    check "every applet in the Panel and Dock plugins_* has a .desktop file" \
+        "set -- /usr/share/cosmic/com.system76.CosmicPanel.Panel/v1/plugins_* /usr/share/cosmic/com.system76.CosmicPanel.Dock/v1/plugins_*; test -f \$1 && n=0 && for id in \$(cat \"\$@\" | grep -o '\"[^\"]*\"' | tr -d '\"'); do n=\$((n+1)); test -f /usr/share/applications/\$id.desktop || { echo \$id; exit 1; }; done; [ \$n -gt 0 ]"
+fi
+
 # --- COSMIC login screen: the centred, branded cosmic-greeter --------------
 if [ "$DESKTOP" = cosmic ]; then
     W=/usr/share/backgrounds/isotope

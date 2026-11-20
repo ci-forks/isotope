@@ -5156,8 +5156,30 @@ RUN --mount=type=cache,id=cosmic-cargo-registry,target=/usr/local/cargo/registry
     test -s /cosmic-theme/usr/share/cosmic/com.system76.CosmicTheme.Light/v2/accent && \
     test "$(cat /cosmic-theme/usr/share/cosmic/com.system76.CosmicTheme.Mode/v1/is_dark)" = true
 
+# Isotope's own COSMIC panel applets: applets/, a Cargo workspace (see
+# applets/Cargo.toml and applets/justfile). Today the Isotope mark and the
+# focused app at the left of the top bar (isotope-applet-mark, panel ID
+# io.kairos.Isotope.Mark). Built like a stock COSMIC component, through
+# cosmic-build's directory mode, so the libcosmic patches apply to it and every
+# installed ELF is ldd-checked. Its libcosmic is the rev cosmic-applets pins,
+# so the shared cosmic-target cache already holds most of its dependencies.
+FROM cosmic-build AS isotope-applets
+# renovate: datasource=github-tags depName=pop-os/cosmic-session extractVersion=^epoch-(?<version>\d+(\.\d+)*)$
+ARG COSMIC_VERSION=1.11.0
+ENV COSMIC_VERSION=${COSMIC_VERSION} COSMIC_OUT=/cosmic
+ENV CARGO_TARGET_DIR=/cargo-target
+COPY applets /src/applets
+RUN --mount=type=cache,id=cosmic-cargo-registry,target=/usr/local/cargo/registry,sharing=locked --mount=type=cache,id=cosmic-target,target=/cargo-target,sharing=locked \
+    cosmic-build /src/applets && rm -rf /cargo-target/* && \
+    test -x /cosmic/usr/bin/isotope-applet-mark && \
+    grep -qa window_controls_left /cosmic/usr/bin/isotope-applet-mark && \
+    test -f /cosmic/usr/share/applications/io.kairos.Isotope.Mark.desktop && \
+    test -f /cosmic/usr/share/icons/hicolor/scalable/apps/io.kairos.Isotope.Mark-symbolic.svg
+
 FROM common-config AS cosmic-config
 COPY rootfs-cosmic/ /
+# Isotope's own applets (the isotope-applets stage), next to COSMIC's.
+COPY --from=isotope-applets /cosmic/ /
 # The Isotope panel defaults live once, in the Isotope layout (the Layout page
 # installs that dir into a user's config); the system defaults are a copy of
 # it, so the two cannot drift. test/look/check-look.sh diffs them.
