@@ -105,6 +105,11 @@ func waitAction(c <-chan *dbus.Signal, id uint32, timeout time.Duration) bool {
 			}
 			switch s.Name {
 			case notifications + ".ActionInvoked":
+				// Any session-bus client can send this signal: check
+				// it has the action key before reading it.
+				if len(s.Body) < 2 {
+					continue
+				}
 				if a, _ := s.Body[1].(string); a == "default" {
 					return true
 				}
@@ -117,15 +122,30 @@ func waitAction(c <-chan *dbus.Signal, id uint32, timeout time.Duration) bool {
 	}
 }
 
+// reminderText is the reminder's summary and body. The apps may be pending
+// with a browser installed (setup skipped while it installed), so it says
+// "no browser" only when no browser of the list is installed.
+func reminderText(installed map[string]bool, apps []App) (summary, body string) {
+	for _, a := range apps {
+		if a.Group == "browser" && installed[a.ID] {
+			return "Install essential apps", "Pick a few essential apps from Flathub, or install the ones that did not finish."
+		}
+	}
+	return "Install a browser and essential apps", "Isotope has no browser yet. Pick one and a few essentials from Flathub."
+}
+
 // remindApps is the --login step for a user who skipped Apps offline: once
 // there is a network and a usable Flathub, send the reminder, whose click
 // opens the Apps page. It then writes the "skipped" stamp: one reminder.
-func remindApps(r Runner, stateDir string) {
-	if !Online(r) || !FlathubReady(r) {
+// It runs in the background at login, so it waits up to 30 s for the
+// network (the Apps page waits 5 s).
+func remindApps(r Runner, stateDir string, apps []App) {
+	if !onlineWithin(r, 30) || !FlathubReady(r) {
 		return // still pending: the next login tries again
 	}
-	err := Remind("Install a browser and essential apps",
-		"Isotope has no browser yet. Pick one and a few essentials from Flathub.",
+	installed, _ := InstalledApps(r)
+	summary, body := reminderText(installed, apps)
+	err := Remind(summary, body,
 		func() {
 			if err := start(appsCommand...); err != nil {
 				fmt.Fprintf(os.Stderr, "isotope-welcome: %v\n", err)

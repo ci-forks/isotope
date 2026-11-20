@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -56,10 +57,13 @@ func FlathubReady(r Runner) bool {
 
 // Online asks NetworkManager whether the machine has a network. Without
 // nm-online it assumes it has, and the Flathub check says the rest.
-func Online(r Runner) bool {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+func Online(r Runner) bool { return onlineWithin(r, 5) }
+
+// onlineWithin is Online, waiting up to secs seconds for a connection.
+func onlineWithin(r Runner, secs int) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(secs+10)*time.Second)
 	defer cancel()
-	_, err := r.Run(ctx, "nm-online", "-q", "-t", "5")
+	_, err := r.Run(ctx, "nm-online", "-q", "-t", strconv.Itoa(secs))
 	return err == nil || !isExit(err)
 }
 

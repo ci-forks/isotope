@@ -74,7 +74,7 @@ func main() {
 	if page == PageLogin && !ShouldOpenAtLogin(stateDir) {
 		// Apps was skipped for want of a network: remind once, then go.
 		if ShouldRemindApps(stateDir) {
-			remindApps(ExecRunner{}, stateDir)
+			remindApps(ExecRunner{}, stateDir, loadAppList())
 		}
 		os.Exit(0)
 	}
@@ -87,15 +87,7 @@ func main() {
 	// says nothing about the first login.
 	stamps := page == PageAll || page == PageLogin
 
-	var appList []App
-	if f, err := os.Open(AppListFile); err == nil {
-		if a, err := ParseAppList(f); err == nil {
-			appList = a
-		} else {
-			fmt.Fprintf(os.Stderr, "isotope-welcome: %v\n", err)
-		}
-		f.Close()
-	}
+	appList := loadAppList()
 
 	win := new(app.Window)
 	// closeAsked: the UI asked to close; the close is sent after the frame.
@@ -184,6 +176,21 @@ func main() {
 		}
 	}()
 	app.Main()
+}
+
+// loadAppList reads the curated apps (AppListFile); nil when it cannot.
+func loadAppList() []App {
+	f, err := os.Open(AppListFile)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+	a, err := ParseAppList(f)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "isotope-welcome: %v\n", err)
+		return nil
+	}
+	return a
 }
 
 // flowFor is the flow a command line opens: the whole flow, or one page.

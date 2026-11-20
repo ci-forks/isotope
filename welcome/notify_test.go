@@ -57,3 +57,47 @@ func TestWaitAction(t *testing.T) {
 		t.Error("a timeout is not a click")
 	}
 }
+
+// Any session-bus client can send these signals: a malformed one is
+// ignored, not a crash.
+func TestWaitActionIgnoresMalformedSignals(t *testing.T) {
+	c := make(chan *dbus.Signal, 4)
+	c <- sig("ActionInvoked", uint32(7))
+	c <- sig("ActionInvoked", uint32(7), uint32(3))
+	c <- sig("ActionInvoked", "7", "default")
+	c <- sig("ActionInvoked", uint32(7), "default")
+	if !waitAction(c, 7, time.Second) {
+		t.Error("the well-formed click after the bad signals must count")
+	}
+}
+
+// The reminder also follows setup skipped while apps installed, so a
+// browser may be there by now: it must not say there is none.
+func TestReminderText(t *testing.T) {
+	apps := loadApps(t)
+	_, body := reminderText(map[string]bool{}, apps)
+	if !strings.Contains(body, "no browser yet") {
+		t.Errorf("no browser: %q", body)
+	}
+	_, body = reminderText(map[string]bool{"org.mozilla.firefox": true}, apps)
+	if strings.Contains(body, "no browser") {
+		t.Errorf("Firefox installed, yet: %q", body)
+	}
+}
+
+// The reminder runs in the background at login: it waits longer for the
+// network than the Apps page does, so a slow Wi-Fi does not defer it.
+func TestRemindWaitsForTheNetwork(t *testing.T) {
+	r := &fakeRunner{fail: []string{"nm-online"}}
+	dir := t.TempDir()
+	if err := WriteStamp(dir, StampAppsPending); err != nil {
+		t.Fatal(err)
+	}
+	remindApps(r, dir, nil)
+	if c := r.called(); len(c) != 1 || c[0] != "nm-online -q -t 30" {
+		t.Fatalf("calls %v", c)
+	}
+	if !ShouldRemindApps(dir) {
+		t.Error("still offline: the reminder stays pending")
+	}
+}
