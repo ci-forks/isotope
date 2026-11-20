@@ -15,8 +15,11 @@
 #   it is the login when no login screen runs. A login screen on tty1 takes
 #   the VT with Conflicts=getty@tty1 and gives it back with OnFailure=.
 #
+# - UPower and power-profiles-daemon are installed and run from boot on the
+#   desktop images and the agent.
+#
 # Works on every desktop image, the agent and the server (which has no login
-# screen, so only the first three groups apply).
+# screen and no UPower, so only the first three groups apply).
 set -euo pipefail
 IMAGE="${1:-sway-desktop:dev}"
 fail=0
@@ -85,5 +88,26 @@ dm ly@tty1 /usr/lib/systemd/system/ly@.service \
     /usr/lib/systemd/system/ly@.service.d/20-getty-fallback.conf 'getty@%i.service'
 dm cosmic-greeter /usr/lib/systemd/system/cosmic-greeter.service \
     /usr/lib/systemd/system/cosmic-greeter.service.d/20-getty-fallback.conf getty@tty1.service
+
+# Battery and power profiles, on every desktop variant and the agent (not the
+# server). A laptop running COSMIC showed no battery: /sys/class/power_supply
+# had BAT0, but there was no UPower on the system bus, which COSMIC's battery
+# applet and Noctalia read it from. Both units are wanted by multi-user.target
+# because Kairos never reaches graphical.target, their WantedBy=.
+if run "grep -qx FLAVOR=server /etc/isotope/release" >/dev/null 2>&1; then
+    echo "SKIP: UPower and power-profiles-daemon (server edition)"
+else
+    for s in upower:/usr/lib/upowerd:org.freedesktop.UPower \
+             power-profiles-daemon:/usr/lib/power-profiles-daemon:org.freedesktop.UPower.PowerProfiles; do
+        u="${s%%:*}"; rest="${s#*:}"; bin="${rest%%:*}"; bus="${rest#*:}"
+        check "$u: daemon, unit, D-Bus policy and activation file are installed" \
+            "test -x $bin && grep -q '^ExecStart=$bin' /usr/lib/systemd/system/$u.service && test -f /usr/share/dbus-1/system.d/$bus.conf && grep -qx 'SystemdService=$u.service' /usr/share/dbus-1/system-services/$bus.service"
+        check "$u.service is wanted by multi-user.target" \
+            "test -L /etc/systemd/system/multi-user.target.wants/$u.service && test -e /etc/systemd/system/multi-user.target.wants/$u.service"
+        check "$u: its libraries resolve" "test -x $bin && ! ldd $bin 2>&1 | grep -q 'not found'"
+    done
+    check "UPower and power-profiles-daemon polkit actions are installed" \
+        "test -f /usr/share/polkit-1/actions/org.freedesktop.upower.policy && test -f /usr/share/polkit-1/actions/power-profiles-daemon.policy"
+fi
 
 exit "$fail"
