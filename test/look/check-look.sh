@@ -88,6 +88,14 @@ if [ "$DESKTOP" = cosmic ]; then
     check "CosmicTk monospace_font is JetBrains Mono" "grep -q 'family: \"JetBrains Mono\"' $K/monospace_font"
     check "CosmicTk header_size and interface_density are Standard" \
         "grep -qx Standard $K/header_size && grep -qx Standard $K/interface_density"
+    # Window buttons on the left: every COSMIC binary that reads CosmicTk must
+    # be built with the patched libcosmic (patches/cosmic/libcosmic), whose
+    # CosmicTk has the window_controls_left key; at least one must read it.
+    check "every ELF that reads CosmicTk knows window_controls_left (patched libcosmic)" \
+        "n=0; for f in \$(find /usr/bin /usr/libexec -type f 2>/dev/null); do head -c4 \$f | grep -q ELF || continue; grep -qa com.system76.CosmicTk \$f || continue; n=\$((n+1)); grep -qa window_controls_left \$f || { echo \$f; exit 1; }; done; [ \$n -gt 0 ]"
+    check "CosmicTk window_controls_left is true" "grep -qx true $K/window_controls_left"
+    check "gsettings button-layout puts the window buttons on the left" \
+        "test \"\$(gsettings get org.gnome.desktop.wm.preferences button-layout)\" = \"'close,minimize,maximize:'\""
     P=/usr/share/cosmic/com.system76.CosmicComp/v1
     check "CosmicComp active_hint is false"    "grep -qx false $P/active_hint"
     check "CosmicComp shadows tiled windows"   "grep -q 'shadow_tiled_windows: true' $P/appearance_settings"
