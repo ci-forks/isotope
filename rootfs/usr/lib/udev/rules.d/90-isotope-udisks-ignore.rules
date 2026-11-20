@@ -1,0 +1,13 @@
+# Kairos' own partitions are not for the person at the desktop to mount:
+# COS_* (OEM, STATE, PERSISTENT, RECOVERY, ...), the encrypted ones named
+# *_LUKS, and any LUKS volume on a fixed disk. udisks2 reads UDISKS_IGNORE
+# and leaves them out of its object list (HintIgnore), so no file manager
+# offers them. A LUKS stick (a removable device) is still offered.
+ACTION=="remove", GOTO="isotope_udisks_end"
+SUBSYSTEM!="block", GOTO="isotope_udisks_end"
+
+ENV{ID_FS_LABEL}=="COS_*", ENV{UDISKS_IGNORE}="1"
+ENV{ID_FS_LABEL}=="*_LUKS", ENV{UDISKS_IGNORE}="1"
+ENV{ID_FS_TYPE}=="crypto_LUKS", ATTR{removable}!="1", ENV{UDISKS_IGNORE}="1"
+
+LABEL="isotope_udisks_end"

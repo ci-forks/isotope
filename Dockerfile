@@ -5459,6 +5459,10 @@ RUN chmod 1777 /tmp; \
     for u in upower power-profiles-daemon; do \
       ln -sf /usr/lib/systemd/system/$u.service /etc/systemd/system/multi-user.target.wants/$u.service; \
     done; \
+    # udisks2 mounts removable disks for the session. Same reason: its unit says
+    # WantedBy=graphical.target.
+    systemctl enable udisks2.service 2>/dev/null || true; \
+    ln -sf /usr/lib/systemd/system/udisks2.service /etc/systemd/system/multi-user.target.wants/udisks2.service; \
     # Docker must stay disabled in the baked filesystem: the live installer's
     # /var is itself an overlayfs, so starting dockerd there would make overlay2
     # repeatedly fail its nested-overlay check. The guarded 92_docker.yaml boot

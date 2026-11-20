@@ -1,0 +1,18 @@
+// The person at the screen may mount, eject and power off removable disks
+// without a password, from a file manager or the Backup page in Welcome.
+// "local" and "active" mean a session on this machine's seat, not an SSH or
+// a background one; anyone else falls through to udisks2's own policy.
+//
+// Not granted here: filesystem-unmount-others (udisks2 already lets a user
+// unmount what they mounted) and filesystem-mount-system (a disk marked as
+// a system disk stays behind an administrator's password).
+polkit.addRule(function(action, subject) {
+    var allowed = [
+        "org.freedesktop.udisks2.filesystem-mount",
+        "org.freedesktop.udisks2.eject-media",
+        "org.freedesktop.udisks2.power-off-drive"
+    ];
+    if (allowed.indexOf(action.id) >= 0 && subject.local && subject.active) {
+        return polkit.Result.YES;
+    }
+});
