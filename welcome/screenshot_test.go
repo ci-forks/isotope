@@ -54,7 +54,8 @@ func fixture(t *testing.T, d Desktop) *UI {
 		Invalidate:        func() {},
 		Logout:            func() error { t.Error("logout"); return nil },
 		OpenShortcutSheet: func() error { return nil },
-		Finish:            func(s Stamp) { t.Errorf("finish %s", s) },
+		WriteStamp:        func(s Stamp) { t.Errorf("stamp %s", s) },
+		Close:             func() { t.Error("close") },
 	})
 	at := time.Date(2026, 11, 20, 9, 30, 0, 0, time.UTC)
 	u.now = func() time.Time { return at }
@@ -100,6 +101,7 @@ var pages = []struct {
 		o.AppsFailed = []string{"VLC", "Papers"}
 		to(u, PReady)
 	}},
+	{"skip-confirm", Sway, 1, sizes, func(u *UI) { u.askSkip() }},
 	{"welcome-scale-2", Cosmic, 2, []image.Point{{1440, 900}}, func(*UI) {}},
 }
 

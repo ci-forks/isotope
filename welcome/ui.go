@@ -23,9 +23,11 @@ type Hooks struct {
 	Logout func() error
 	// OpenShortcutSheet opens the full sheet, as Super+F1 does.
 	OpenShortcutSheet func() error
-	// Finish records how the flow ended and closes the window. The UI
-	// calls it once.
-	Finish func(Stamp)
+	// WriteStamp records how the flow ended. The UI calls it once.
+	WriteStamp func(Stamp)
+	// Close asks the window to close. The request comes back through
+	// CloseRequested, which lets it through once the flow has ended.
+	Close func()
 }
 
 // page is one screen of the flow. Each lives in its own page_*.go file and
@@ -71,14 +73,19 @@ type UI struct {
 	// stamp then asks the next login to remind the user.
 	appsPending bool
 
-	pages    map[PageID]page
-	shown    PageID    // the page drawn last frame
-	pageAt   time.Time // when it came in, for the slide
-	focus    event.Tag // focus this on the next frame
-	scale    float32   // Ctrl+Plus and Ctrl+Minus
-	finished bool
+	pages  map[PageID]page
+	shown  PageID    // the page drawn last frame
+	pageAt time.Time // when it came in, for the slide
+	focus  event.Tag // focus this on the next frame
+	scale  float32   // Ctrl+Plus and Ctrl+Minus
+
+	// stamped: the stamp is written; closing: the UI asked to close.
+	stamped, closing bool
+	// confirming: "Skip setup?" is shown over the page.
+	confirming bool
 
 	back, skip, cont widget.Clickable
+	skipYes, skipNo  widget.Clickable
 }
 
 func newUI(flow *Flow, d Desktop, sh *text.Shaper, h Hooks) *UI {
@@ -116,14 +123,25 @@ func (u *UI) Layout(gtx layout.Context) layout.Dimensions {
 	gtx = guikit.Scaled(gtx, u.scale)
 	event.Op(gtx.Ops, u)
 	guikit.WindowKeys(gtx, &u.scale, u.prev)
-	u.update(gtx)
+	if u.confirming {
+		if u.skipYes.Clicked(gtx) {
+			u.answerSkip(true)
+		}
+		if u.skipNo.Clicked(gtx) {
+			u.answerSkip(false)
+		}
+	} else {
+		u.update(gtx)
+	}
 	if cur := u.flow.Current(); cur != u.shown {
 		// A new page slides in; the first one is simply there.
 		if u.shown != "" {
 			u.pageAt = u.now()
 		}
 		u.shown = cur
-		u.focus = &u.cont
+		if !u.confirming {
+			u.focus = &u.cont
+		}
 	}
 	if u.focus != nil {
 		gtx.Execute(key.FocusCmd{Tag: u.focus})
@@ -138,6 +156,14 @@ func (u *UI) Layout(gtx layout.Context) layout.Dimensions {
 		lead, trail := p.Footer(u.nav())
 		return u.Footer(gtx, lead, nil, trail)
 	})
+	if u.confirming {
+		u.Confirm(gtx, "Skip setup?",
+			"Isotope keeps the settings it has. You can open this window again from the Isotope menu (Super+Esc → Welcome).",
+			[]guikit.Action{
+				{Click: &u.skipNo, Kind: guikit.ButtonSecondary, Label: "Keep going"},
+				{Click: &u.skipYes, Kind: guikit.ButtonPrimary, Label: "Skip setup"},
+			})
+	}
 	if !u.pageAt.IsZero() && u.now().Sub(u.pageAt) < guikit.SlideTime {
 		gtx.Execute(op.InvalidateCmd{})
 	}
@@ -195,8 +221,14 @@ func (u *UI) next() {
 	}
 }
 
-// prev is Go back and Esc.
-func (u *UI) prev() { u.flow.Back() }
+// prev is Go back and Esc. Esc on the question is Keep going.
+func (u *UI) prev() {
+	if u.confirming {
+		u.answerSkip(false)
+		return
+	}
+	u.flow.Back()
+}
 
 // skipPage is Skip: the page's setting is left as it was.
 func (u *UI) skipPage() {
@@ -221,23 +253,66 @@ func (u *UI) endStamp() Stamp {
 	return StampDone
 }
 
-// finish ends the flow once, with stamp s.
-func (u *UI) finish(s Stamp) {
-	if u.finished {
+// stamp writes the stamp s, once.
+func (u *UI) stamp(s Stamp) {
+	if u.stamped {
 		return
 	}
-	u.finished = true
-	if u.hooks.Finish != nil {
-		u.hooks.Finish(s)
+	u.stamped = true
+	if u.hooks.WriteStamp != nil {
+		u.hooks.WriteStamp(s)
 	}
 }
 
-// skipSetup is "Skip setup" on the Welcome page.
-func (u *UI) skipSetup() { u.finish(StampSkipped) }
+// close asks the window to close; CloseRequested lets it through.
+func (u *UI) close() {
+	u.closing = true
+	if u.hooks.Close != nil {
+		u.hooks.Close()
+	}
+}
 
-// Closed is the window closing. Gio cannot keep it open, so closing before
-// Finish is a skip.
-func (u *UI) Closed() { u.finish(StampSkipped) }
+// finish ends the flow with stamp s and closes the window.
+func (u *UI) finish(s Stamp) {
+	u.stamp(s)
+	u.close()
+}
+
+// askSkip shows "Skip setup?": the window manager's close button, and
+// "Skip setup" on the Welcome page.
+func (u *UI) askSkip() {
+	u.confirming = true
+	u.focus = &u.skipNo
+	if u.hooks.Invalidate != nil {
+		u.hooks.Invalidate()
+	}
+}
+
+// answerSkip is the answer to "Skip setup?".
+func (u *UI) answerSkip(skip bool) {
+	u.confirming = false
+	if skip {
+		u.finish(StampSkipped)
+		return
+	}
+	u.focus = &u.cont
+}
+
+// CloseRequested is a request to close the window (app.ClosingEvent); true
+// keeps the window open. Before the flow has ended, the full flow asks
+// "Skip setup?" first. A close the UI asked for, a flow whose stamp is
+// written, and a page opened on its own close at once.
+func (u *UI) CloseRequested() (keep bool) {
+	if u.closing || u.stamped || len(u.flow.Pages()) < 2 {
+		return false
+	}
+	u.askSkip()
+	return true
+}
+
+// Closed is the window going away. Before the stamp is written that is a
+// skip: a close that came without a request the UI could keep.
+func (u *UI) Closed() { u.stamp(StampSkipped) }
 
 // scrolled lays w in the page's padding, in a list that scrolls when w is
 // taller than the column (a large scale, a small screen). w gets at least

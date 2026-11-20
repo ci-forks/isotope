@@ -65,37 +65,37 @@ func main() {
 		fmt.Fprintln(os.Stderr, "isotope-welcome: backup is not available yet")
 		os.Exit(2)
 	}
-	if page == PageLogin {
-		home, _ := os.UserHomeDir()
-		if !ShouldOpenAtLogin(StateDir(home, os.Getenv)) {
-			os.Exit(0)
-		}
+	home, _ := os.UserHomeDir()
+	stateDir := StateDir(home, os.Getenv)
+	if page == PageLogin && !ShouldOpenAtLogin(stateDir) {
+		os.Exit(0)
 	}
 	d, err := ReadDesktop(SessionFile)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "isotope-welcome: %v\n", err)
 		os.Exit(1)
 	}
-	home, _ := os.UserHomeDir()
-	stateDir := StateDir(home, os.Getenv)
 	// Only the whole flow writes the stamp: a page opened from the menu
 	// says nothing about the first login.
 	stamps := page == PageAll || page == PageLogin
 
 	win := new(app.Window)
+	// closeAsked: the UI asked to close; the close is sent after the frame.
+	closeAsked := false
 	win.Option(app.Title("Welcome to Isotope"), app.Size(unit.Dp(1100), unit.Dp(720)), app.Decorated(true))
 	u := newUI(flowFor(page, d), d, guikit.NewShaper(), Hooks{
 		Invalidate:        win.Invalidate,
 		Logout:            func() error { return start(logoutCommand(d)...) },
 		OpenShortcutSheet: func() error { return start("isotope-menu", "Help") },
-		Finish: func(s Stamp) {
-			if stamps {
-				if err := WriteStamp(stateDir, s); err != nil {
-					fmt.Fprintf(os.Stderr, "isotope-welcome: %v\n", err)
-				}
+		WriteStamp: func(s Stamp) {
+			if !stamps {
+				return
 			}
-			win.Perform(system.ActionClose)
+			if err := WriteStamp(stateDir, s); err != nil {
+				fmt.Fprintf(os.Stderr, "isotope-welcome: %v\n", err)
+			}
 		},
+		Close: func() { closeAsked = true },
 	})
 	u.version = versionLine("/etc/isotope/release")
 	if f, err := os.Open(ShortcutsFile); err == nil {
@@ -111,9 +111,17 @@ func main() {
 		var ops op.Ops
 		for {
 			switch e := win.Event().(type) {
+			case *app.ClosingEvent:
+				// The window manager's close button: before the flow has
+				// ended the UI keeps the window and asks "Skip setup?".
+				// The close Finish asks for passes.
+				if u.CloseRequested() {
+					e.Abort()
+					win.Invalidate()
+				}
 			case app.DestroyEvent:
-				// The window manager's close button lands here too: before
-				// Finish, it is a skip.
+				// A close nothing asked about (or that could not be
+				// stopped): before the stamp, a skip.
 				u.Closed()
 				if e.Err != nil {
 					fmt.Fprintf(os.Stderr, "isotope-welcome: %v\n", e.Err)
@@ -124,6 +132,10 @@ func main() {
 				gtx := app.NewContext(&ops, e)
 				u.Layout(gtx)
 				e.Frame(gtx.Ops)
+				if closeAsked {
+					closeAsked = false
+					win.Perform(system.ActionClose)
+				}
 			}
 		}
 	}()

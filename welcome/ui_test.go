@@ -9,20 +9,48 @@ import (
 	"github.com/kairos-community/isotope/guikit"
 )
 
-// recorder is a Hooks whose Finish and Logout calls are kept.
+// recorder is a Hooks that keeps what the UI asked for, and closes the
+// window as main does on Wayland: Close sends a close request back through
+// CloseRequested, and only a request the UI does not keep destroys the
+// window (closed, then Closed).
 type recorder struct {
+	u       *UI
 	stamps  []Stamp
 	logouts int
 	sheets  int
+	closed  bool
+	logout  func() error
 }
 
 func (r *recorder) hooks() Hooks {
 	return Hooks{
-		Invalidate:        func() {},
-		Logout:            func() error { r.logouts++; return nil },
+		Invalidate: func() {},
+		Logout: func() error {
+			r.logouts++
+			if r.logout != nil {
+				return r.logout()
+			}
+			return nil
+		},
 		OpenShortcutSheet: func() error { r.sheets++; return nil },
-		Finish:            func(s Stamp) { r.stamps = append(r.stamps, s) },
+		WriteStamp:        func(s Stamp) { r.stamps = append(r.stamps, s) },
+		Close:             func() { r.requestClose() },
 	}
+}
+
+// requestClose is a close request, from Close or the window manager.
+func (r *recorder) requestClose() {
+	if r.u.CloseRequested() {
+		return // aborted: the window stays
+	}
+	r.closed = true
+	r.u.Closed()
+}
+
+func newRecorded(f *Flow, d Desktop) (*UI, *recorder) {
+	r := &recorder{}
+	r.u = newUI(f, d, guikit.NewShaper(), r.hooks())
+	return r.u, r
 }
 
 func to(u *UI, p PageID) {
@@ -31,83 +59,139 @@ func to(u *UI, p PageID) {
 	}
 }
 
-func TestCloseBeforeFinishIsASkip(t *testing.T) {
-	var r recorder
-	u := newUI(NewFlow(Sway), Sway, guikit.NewShaper(), r.hooks())
-	to(u, PNetwork)
-	u.Closed()
-	if len(r.stamps) != 1 || r.stamps[0] != StampSkipped {
-		t.Fatalf("stamps %v, want [skipped]", r.stamps)
+func wantStamps(t *testing.T, r *recorder, want ...Stamp) {
+	t.Helper()
+	if len(r.stamps) != len(want) {
+		t.Fatalf("stamps %v, want %v", r.stamps, want)
+	}
+	for i := range want {
+		if r.stamps[i] != want[i] {
+			t.Fatalf("stamps %v, want %v", r.stamps, want)
+		}
 	}
 }
 
-func TestFinishOnReady(t *testing.T) {
-	var r recorder
-	u := newUI(NewFlow(Cosmic), Cosmic, guikit.NewShaper(), r.hooks())
+func TestCloseRequestAsksBeforeSkipping(t *testing.T) {
+	u, r := newRecorded(NewFlow(Sway), Sway)
+	to(u, PNetwork)
+	r.requestClose()
+	if r.closed || !u.confirming {
+		t.Fatalf("closed %v, asking %v: the close must ask first", r.closed, u.confirming)
+	}
+	wantStamps(t, r)
+	u.answerSkip(true)
+	wantStamps(t, r, StampSkipped)
+	if !r.closed {
+		t.Fatal("Skip did not close the window")
+	}
+}
+
+func TestCloseRequestKeepGoing(t *testing.T) {
+	u, r := newRecorded(NewFlow(Sway), Sway)
+	to(u, PNetwork)
+	r.requestClose()
+	u.answerSkip(false)
+	if r.closed || u.confirming || u.flow.Current() != PNetwork {
+		t.Fatalf("closed %v, asking %v, page %s", r.closed, u.confirming, u.flow.Current())
+	}
+	wantStamps(t, r)
+}
+
+func TestEscDismissesTheQuestion(t *testing.T) {
+	u, r := newRecorded(NewFlow(Sway), Sway)
+	to(u, PNetwork)
+	r.requestClose()
+	u.prev()
+	if u.confirming || u.flow.Current() != PNetwork {
+		t.Fatalf("Esc: asking %v, page %s", u.confirming, u.flow.Current())
+	}
+}
+
+// A close the UI cannot stop (the window destroyed) is still a skip.
+func TestForcedCloseIsASkip(t *testing.T) {
+	u, r := newRecorded(NewFlow(Sway), Sway)
+	to(u, PNetwork)
+	u.Closed()
+	wantStamps(t, r, StampSkipped)
+}
+
+func TestSkipSetupAsks(t *testing.T) {
+	u, r := newRecorded(NewFlow(Sway), Sway)
+	u.askSkip()
+	if !u.confirming {
+		t.Fatal("Skip setup did not ask")
+	}
+	wantStamps(t, r)
+	u.answerSkip(true)
+	wantStamps(t, r, StampSkipped)
+	if !r.closed {
+		t.Fatal("not closed")
+	}
+}
+
+func TestFinishOnReadyClosesWithoutAsking(t *testing.T) {
+	u, r := newRecorded(NewFlow(Cosmic), Cosmic)
 	to(u, PReady)
 	u.next()
-	// The window then closes: that is not a second stamp.
-	u.Closed()
-	if len(r.stamps) != 1 || r.stamps[0] != StampDone {
-		t.Fatalf("stamps %v, want [completed]", r.stamps)
+	wantStamps(t, r, StampDone)
+	if !r.closed || u.confirming {
+		t.Fatalf("closed %v, asking %v", r.closed, u.confirming)
 	}
 }
 
 func TestFinishAppsPending(t *testing.T) {
-	var r recorder
-	u := newUI(NewFlow(Sway), Sway, guikit.NewShaper(), r.hooks())
+	u, r := newRecorded(NewFlow(Sway), Sway)
 	u.appsPending = true
 	to(u, PReady)
 	u.next()
-	if len(r.stamps) != 1 || r.stamps[0] != StampAppsPending {
-		t.Fatalf("stamps %v, want [apps-pending]", r.stamps)
-	}
+	wantStamps(t, r, StampAppsPending)
 }
 
-func TestSkipSetupFromWelcome(t *testing.T) {
-	var r recorder
-	u := newUI(NewFlow(Sway), Sway, guikit.NewShaper(), r.hooks())
-	u.skipSetup()
-	if len(r.stamps) != 1 || r.stamps[0] != StampSkipped {
-		t.Fatalf("stamps %v, want [skipped]", r.stamps)
-	}
-}
-
-func TestLogOutWritesTheStampFirst(t *testing.T) {
-	var r recorder
-	h := r.hooks()
-	h.Logout = func() error {
+func TestLogOutWritesTheStampThenCloses(t *testing.T) {
+	u, r := newRecorded(NewFlow(Sway), Sway)
+	r.logout = func() error {
 		if len(r.stamps) != 1 || r.stamps[0] != StampDone {
 			t.Errorf("logout before the stamp: %v", r.stamps)
 		}
-		r.logouts++
+		if r.closed {
+			t.Error("window closed before the logout ran")
+		}
 		return nil
 	}
-	u := newUI(NewFlow(Sway), Sway, guikit.NewShaper(), h)
 	u.flow.Outcome.LanguageChanged = "Deutsch (Deutschland)"
 	to(u, PReady)
 	u.page().(*readyPage).logOut()
-	if r.logouts != 1 {
-		t.Fatalf("logouts %d", r.logouts)
+	if r.logouts != 1 || !r.closed {
+		t.Fatalf("logouts %d, closed %v", r.logouts, r.closed)
 	}
+	wantStamps(t, r, StampDone)
 }
 
-func TestLogOutFailureIsShown(t *testing.T) {
-	var r recorder
-	h := r.hooks()
-	h.Logout = func() error { return errors.New("swaymsg: not found") }
-	u := newUI(NewFlow(Sway), Sway, guikit.NewShaper(), h)
+func TestLogOutFailureKeepsTheWindow(t *testing.T) {
+	u, r := newRecorded(NewFlow(Sway), Sway)
+	r.logout = func() error { return errors.New("swaymsg: not found") }
+	u.flow.Outcome.LanguageChanged = "Deutsch (Deutschland)"
 	to(u, PReady)
 	rp := u.page().(*readyPage)
 	rp.logOut()
+	if r.closed {
+		t.Fatal("the window closed with the error on it")
+	}
 	if rp.logoutErr == "" {
 		t.Fatal("no error shown")
 	}
+	wantStamps(t, r, StampDone)
+	// The stamp is written: closing now neither asks nor stamps again,
+	// and Finish just closes.
+	r.requestClose()
+	if !r.closed || u.confirming {
+		t.Fatalf("closed %v, asking %v", r.closed, u.confirming)
+	}
+	wantStamps(t, r, StampDone)
 }
 
 func TestBackAndContinue(t *testing.T) {
-	var r recorder
-	u := newUI(NewFlow(Sway), Sway, guikit.NewShaper(), r.hooks())
+	u, r := newRecorded(NewFlow(Sway), Sway)
 	u.next()
 	if u.flow.Current() != PLanguage {
 		t.Fatalf("Continue on Welcome went to %s", u.flow.Current())
@@ -124,18 +208,23 @@ func TestBackAndContinue(t *testing.T) {
 	}
 }
 
-func TestSinglePageFlowFinishes(t *testing.T) {
-	var r recorder
-	u := newUI(Single(PShortcuts), Sway, guikit.NewShaper(), r.hooks())
+func TestSinglePageFlow(t *testing.T) {
+	u, r := newRecorded(Single(PShortcuts), Sway)
+	// One page opened from the menu: closing it does not ask.
+	r.requestClose()
+	if !r.closed || u.confirming {
+		t.Fatalf("closed %v, asking %v", r.closed, u.confirming)
+	}
+	u, r = newRecorded(Single(PShortcuts), Sway)
 	u.next()
-	if len(r.stamps) != 1 || r.stamps[0] != StampDone {
-		t.Fatalf("stamps %v", r.stamps)
+	wantStamps(t, r, StampDone)
+	if !r.closed {
+		t.Fatal("Done did not close")
 	}
 }
 
 func TestShowAllShortcuts(t *testing.T) {
-	var r recorder
-	u := newUI(NewFlow(Sway), Sway, guikit.NewShaper(), r.hooks())
+	u, r := newRecorded(NewFlow(Sway), Sway)
 	to(u, PShortcuts)
 	u.page().(*shortcutsPage).showAll()
 	if r.sheets != 1 {

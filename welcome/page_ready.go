@@ -41,17 +41,19 @@ func (p *readyPage) Update(gtx layout.Context) {
 	}
 }
 
-// logOut writes the stamp first: the session ends under the window.
+// logOut writes the stamp, then ends the session. The window closes only
+// when the logout started; if it did not, it stays with the error.
 func (p *readyPage) logOut() {
 	u := p.u
 	p.logoutErr = ""
-	u.finish(u.endStamp())
-	if u.hooks.Logout == nil {
-		return
+	u.stamp(u.endStamp())
+	if u.hooks.Logout != nil {
+		if err := u.hooks.Logout(); err != nil {
+			p.logoutErr = "Could not log out: " + err.Error() + ". Log out from the power menu instead."
+			return
+		}
 	}
-	if err := u.hooks.Logout(); err != nil {
-		p.logoutErr = "Could not log out: " + err.Error() + ". Log out from the power menu instead."
-	}
+	u.close()
 }
 
 // summarised are the pages Ready reports on: the ones that set something.

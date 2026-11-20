@@ -26,10 +26,11 @@ func (p *welcomePage) Footer(n nav) (leading, trailing []guikit.Action) {
 
 func (p *welcomePage) Update(gtx layout.Context) {
 	if p.quit.Clicked(gtx) {
-		p.u.skipSetup()
+		p.u.askSkip()
 	}
 	if p.asNew.Clicked(gtx) {
-		// The only choice: a click on it is a Continue.
+		// The only choice: a click on it is a Continue. With the Restore
+		// plan's second card a click selects, and Continue goes on.
 		p.u.next()
 	}
 }
