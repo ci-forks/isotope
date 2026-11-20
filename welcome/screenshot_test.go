@@ -90,6 +90,15 @@ func appsAt(u *UI, r *fakeRunner) {
 	p.load(true)
 }
 
+// accessAt is the Accessibility page with what r says is set.
+func accessAt(u *UI, r *fakeRunner) {
+	u.hooks.Runner = r
+	to(u, PAccessibility)
+	p := u.page().(*accessPage)
+	p.start()
+	p.wait()
+}
+
 var pages = []struct {
 	name  string
 	d     Desktop
@@ -171,6 +180,15 @@ var pages = []struct {
 		to(u, PAppearance)
 		u.page().(*appearancePage).start()
 		u.page().(*appearancePage).wait()
+	}},
+	{"access-tiling", Sway, 1, sizes, func(u *UI) {
+		accessAt(u, &fakeRunner{out: map[string]string{swayOutputs: `[{"name":"eDP-1","active":true,"scale":1.25}]`}})
+	}},
+	{"access-i3", I3, 1, sizes, func(u *UI) {
+		accessAt(u, &fakeRunner{out: map[string]string{xrdbQuery: "Xft.dpi:\t96\n", textGet: "1.25\n"}})
+	}},
+	{"access-cosmic", Cosmic, 1, sizes, func(u *UI) {
+		accessAt(u, &fakeRunner{out: map[string]string{cosmicList: cosmicKDL}})
 	}},
 	{"cosmic-layout", Cosmic, 1, sizes, func(u *UI) {
 		to(u, PLayout)

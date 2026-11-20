@@ -767,3 +767,8 @@ binds {
     // moving the mouse or pressing any other key.
     Mod+Shift+P { power-off-monitors; }
 }
+
+// The display scale the Welcome window's Accessibility page sets: an `output`
+// block per screen. niri reloads it when it changes; a missing file is
+// skipped. Not ~/.config/niri/config.kdl, which would replace this whole file.
+include optional=true "~/.config/niri/isotope-scale.kdl"

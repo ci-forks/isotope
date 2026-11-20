@@ -2826,6 +2826,23 @@ RUN curl --retry-all-errors -fL --retry 5 https://xorg.freedesktop.org/archive/i
     ./configure ${COMMON_CONFIGURE_ARGS} && \
     make -j"$(nproc)" && make install DESTDIR=/x11-desktop-tools
 
+# xrdb loads ~/.Xresources into the X server: ly's setup.sh runs
+# `xrdb -merge ~/.Xresources` at every i3 login, and the Welcome window's
+# Accessibility page sets the display scale there (Xft.dpi). Without a cpp on
+# the image xrdb reads the file as it is (no #include or #define). Like
+# xauth, it takes only XmuGetHostname from libXmuu; use gethostname(2).
+# renovate: datasource=gitlab-tags depName=xorg/app/xrdb registryUrl=https://gitlab.freedesktop.org extractVersion=^xrdb-(?<version>\d+(\.\d+)*)$
+ARG XRDB_VERSION=1.2.3
+RUN curl --retry-all-errors -fL --retry 5 https://xorg.freedesktop.org/archive/individual/app/xrdb-${XRDB_VERSION}.tar.xz -o xrdb.tar.xz && \
+    tar -xf xrdb.tar.xz && cd xrdb-${XRDB_VERSION} && \
+    sed -i -e 's|#include <X11/Xmu/SysUtil.h>|#include <unistd.h>|' \
+           -e 's/XmuGetHostname(client, MAXHOSTNAMELEN);/gethostname(client, MAXHOSTNAMELEN);\n    client[MAXHOSTNAMELEN - 1] = 0;/' xrdb.c && \
+    grep -q 'client\[MAXHOSTNAMELEN - 1\] = 0;' xrdb.c && \
+    XRDB_CFLAGS="-I/usr/include $(pkg-config --cflags x11)" \
+    XRDB_LIBS="$(pkg-config --libs x11)" \
+    ./configure ${COMMON_CONFIGURE_ARGS} && \
+    make -j"$(nproc)" && make install DESTDIR=/x11-desktop-tools
+
 # renovate: datasource=git-tags depName=https://git.suckless.org/st extractVersion=^(?<version>\d+(\.\d+)*)$
 ARG ST_VERSION=0.9.3
 RUN curl --retry-all-errors -fL --retry 5 https://dl.suckless.org/st/st-${ST_VERSION}.tar.gz -o st.tar.gz && \

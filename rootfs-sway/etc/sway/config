@@ -259,3 +259,8 @@ bar {
 
 # Drop-ins for local overrides
 include /etc/sway/config.d/*
+
+# The display scale the Welcome window's Accessibility page sets
+# (`output * scale N`). A missing file is skipped. Not ~/.config/sway/config,
+# which would replace this whole file.
+include ~/.config/sway/isotope-scale.conf
