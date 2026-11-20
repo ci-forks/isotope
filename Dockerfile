@@ -3478,6 +3478,7 @@ ARG JUST_VERSION=1.43.0
 RUN --mount=type=cache,id=cosmic-cargo-registry,target=/usr/local/cargo/registry,sharing=locked \
     cargo install just --version ${JUST_VERSION} --locked --root /usr/local
 COPY tools/cosmic-build.sh /usr/local/bin/cosmic-build
+COPY patches/cosmic /usr/share/isotope-patches
 WORKDIR /build
 
 # greetd, the login daemon cosmic-greeter runs under, and pop-launcher, the

@@ -257,3 +257,5 @@ jobs:
         run: test/extensions/check-extensions-menu.sh
       - name: Extension catalog from the registry tags
         run: test/extensions/check-extensions-catalog.sh
+      - name: COSMIC build patches (repo, libcosmic, target dir hash)
+        run: test/cosmic-build/test-cosmic-build-patches.sh
