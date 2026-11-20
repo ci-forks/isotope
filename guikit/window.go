@@ -10,6 +10,7 @@ import (
 	"gioui.org/op"
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
+	"gioui.org/unit"
 	"gioui.org/widget"
 )
 
@@ -159,20 +160,9 @@ func (th *Theme) Sidebar(gtx layout.Context, s Steps) layout.Dimensions {
 				)
 			}),
 			layout.Rigid(layout.Spacer{Height: 28}.Layout),
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				var kids []layout.FlexChild
-				for i, name := range s.Names {
-					if i > 0 {
-						kids = append(kids, layout.Rigid(layout.Spacer{Height: 4}.Layout))
-					}
-					kids = append(kids, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						return th.stepRow(gtx, name, i, s.Current)
-					}))
-				}
-				return layout.Flex{Axis: layout.Vertical}.Layout(gtx, kids...)
-			}),
+			// The steps take the room between the title and the note.
 			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-				return layout.Dimensions{Size: gtx.Constraints.Min}
+				return th.stepList(gtx, s)
 			}),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				return th.Label(gtx, StTiny, ColDim, s.Note)
@@ -181,7 +171,38 @@ func (th *Theme) Sidebar(gtx layout.Context, s Steps) layout.Dimensions {
 	})
 }
 
-func (th *Theme) stepRow(gtx layout.Context, name string, i, cur int) layout.Dimensions {
+// stepList draws the steps from the top of the room it has. When they do
+// not fit (many steps, a large scale on a small screen), the rows close up;
+// if even that is too tall, the list is cut at the bottom of its room
+// rather than drawn over the note.
+func (th *Theme) stepList(gtx layout.Context, s Steps) layout.Dimensions {
+	room := gtx.Constraints.Max.Y
+	gtx.Constraints.Min = image.Point{}
+	pad, gap := unit.Dp(9), unit.Dp(4)
+	if n := len(s.Names); n > 0 {
+		m := op.Record(gtx.Ops)
+		row := th.stepRow(gtx, s.Names[0], 0, s.Current, pad).Size.Y
+		m.Stop()
+		if n*row+(n-1)*gtx.Dp(gap) > room {
+			pad, gap = 2, 0
+		}
+	}
+	defer clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, room)}.Push(gtx.Ops).Pop()
+	var kids []layout.FlexChild
+	for i, name := range s.Names {
+		if i > 0 {
+			kids = append(kids, layout.Rigid(layout.Spacer{Height: gap}.Layout))
+		}
+		kids = append(kids, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			gtx.Constraints.Max.Y = 1 << 24
+			return th.stepRow(gtx, name, i, s.Current, pad)
+		}))
+	}
+	layout.Flex{Axis: layout.Vertical}.Layout(gtx, kids...)
+	return layout.Dimensions{Size: gtx.Constraints.Max}
+}
+
+func (th *Theme) stepRow(gtx layout.Context, name string, i, cur int, pad unit.Dp) layout.Dimensions {
 	gtx.Constraints.Min.X = gtx.Constraints.Max.X
 	st, col := StBody, ColDim
 	switch {
@@ -191,7 +212,7 @@ func (th *Theme) stepRow(gtx layout.Context, name string, i, cur int) layout.Dim
 		st, col = StBody600, ColText
 	}
 	m := op.Record(gtx.Ops)
-	dims := layout.Inset{Top: 9, Bottom: 9, Left: 10, Right: 10}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+	dims := layout.Inset{Top: pad, Bottom: pad, Left: 10, Right: 10}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				switch {
