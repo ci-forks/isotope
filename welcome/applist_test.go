@@ -21,7 +21,7 @@ func loadApps(t *testing.T) []App {
 	return apps
 }
 
-// TestParseAppListMatchesScript: the data file has the nine rows the
+// TestParseAppListMatchesScript: the data file has the nine rows the old
 // terminal checklist (isotope-first-run-apps) had.
 func TestParseAppListMatchesScript(t *testing.T) {
 	want := []App{
@@ -42,26 +42,6 @@ func TestParseAppListMatchesScript(t *testing.T) {
 	for i := range want {
 		if got[i] != want[i] {
 			t.Errorf("row %d = %+v, want %+v", i, got[i], want[i])
-		}
-	}
-}
-
-// TestAppListIsTheScriptsList keeps the two lists equal while the script
-// still ships, so the list is not defined twice with different rows.
-func TestAppListIsTheScriptsList(t *testing.T) {
-	b, err := os.ReadFile(filepath.Join("..", "rootfs", "usr", "bin", "isotope-first-run-apps"))
-	if err != nil {
-		t.Skip("the script is gone")
-	}
-	s := string(b)
-	for _, a := range loadApps(t) {
-		on := "off"
-		if a.Preselected {
-			on = "on"
-		}
-		row := a.Group + "|" + a.ID + "|" + a.Label + "|" + on
-		if !strings.Contains(s, row) {
-			t.Errorf("row %q is not in the script's APPS", row)
 		}
 	}
 }

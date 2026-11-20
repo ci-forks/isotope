@@ -55,8 +55,11 @@ kairos-init from the Kairos monorepo (`ghcr.io/kairos-io/kairos/kairos-init:mast
   The table in AGENTS.md lists what it has and lacks.
 - **Login:** on Sway, i3 and niri, `ly` runs on `tty1`. It launches Sway directly for
   the Wayland session and owns the XLibre server lifecycle for the i3 X session.
-  On COSMIC, greetd runs the graphical cosmic-greeter on `tty1`, and the first
-  login opens COSMIC's welcome (cosmic-initial-setup).
+  On COSMIC, greetd runs the graphical cosmic-greeter on `tty1`.
+- **First login:** on every desktop, Isotope Welcome (`isotope-welcome`)
+  opens once: language, network, appearance (on COSMIC also the panel
+  layout), accessibility, apps and the keyboard shortcuts. "Welcome" in the
+  Isotope menu (Super+Escape) or `isotope welcome` opens it again.
 - **Networking:** NetworkManager + wpa_supplicant (wifi).
 - **Audio:** PipeWire + WirePlumber.
 - **Bluetooth:** BlueZ. On Sway and i3, Super+Shift+B opens a menu to turn
@@ -119,15 +122,15 @@ kept under `build/sway-desktop/` and `build/i3-desktop/`.
 
 - **Shortcuts:** `Super+F1` opens a cheat sheet. `Super+D` launches apps,
   `Super+Enter` opens a terminal, `Super+Shift+E` opens the power menu (log
-  out, suspend, reboot, power off). A one-time notification on the first login
-  points at all three. In Sway, i3 and niri, `Super+Alt+L` locks the screen
+  out, suspend, reboot, power off). The Shortcuts page of Isotope Welcome
+  shows them on the first login. In Sway, i3 and niri, `Super+Alt+L` locks the screen
   and `Print` takes a screenshot. Sway and i3 also lock the screen when idle
   and before suspend.
-- **Apps:** Isotope includes no browser. At your first login, when the
-  network is up, a short checklist offers a browser (Firefox, Chromium, Brave
-  or LibreWolf) and some essential apps, and installs them from Flathub for
-  your user. Skip it if you like; "Install apps" in the Isotope menu or
-  `isotope-first-run-apps` opens it again. Anything else:
+- **Apps:** Isotope includes no browser. At your first login, the Apps page
+  of Isotope Welcome offers a browser (Firefox, Chromium, Brave or LibreWolf)
+  and some essential apps, and installs them from Flathub for your user. Skip
+  it if you like; "Install apps" in the Isotope menu or `isotope welcome apps`
+  opens it again. Anything else:
   `flatpak install flathub <app>`; `distrobox` for a mutable Linux to tinker
   in.
 - **Updates:** a tray icon shows the installed release and tells you when a

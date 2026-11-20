@@ -3121,8 +3121,8 @@ RUN for m in https://mirrors.kernel.org/gnu https://ftpmirror.gnu.org https://ft
 
 # polkit: lets an unprivileged desktop session ask for privileged actions
 # (date and time, language, users) with a password prompt. cosmic-osd is the
-# agent that shows the prompt. Without it, COSMIC Settings' system panels and
-# cosmic-initial-setup silently fail. --libexecdir=lib for the same reason as
+# agent that shows the prompt. Without it, COSMIC Settings' system panels
+# silently fail. --libexecdir=lib for the same reason as
 # flatpak: /usr/libexec is a persistent path on Kairos.
 FROM toolchain AS polkit
 COPY --from=glib2 /glib2 /
@@ -3550,28 +3550,20 @@ RUN --mount=type=cache,id=cosmic-cargo-registry,target=/usr/local/cargo/registry
 RUN --mount=type=cache,id=cosmic-cargo-registry,target=/usr/local/cargo/registry,sharing=locked --mount=type=cache,id=cosmic-target,target=/cargo-target,sharing=locked cosmic-build cosmic-edit && rm -rf /cargo-target/*
 RUN --mount=type=cache,id=cosmic-cargo-registry,target=/usr/local/cargo/registry,sharing=locked --mount=type=cache,id=cosmic-target,target=/cargo-target,sharing=locked cosmic-build cosmic-store && rm -rf /cargo-target/*
 RUN --mount=type=cache,id=cosmic-cargo-registry,target=/usr/local/cargo/registry,sharing=locked --mount=type=cache,id=cosmic-target,target=/cargo-target,sharing=locked COSMIC_CARGO_ARGS="--all" cosmic-build cosmic-greeter && rm -rf /cargo-target/*
-# cosmic-initial-setup reads the system locale from systemd-localed
-# (org.freedesktop.locale1), which Hadron builds without, and gives up on the
-# whole language page when it is absent: an empty list and no way past it. The
-# sed makes a missing localed mean "no system locale set", so the page still
-# lists the languages `locale -a` reports. Its crabtime macros also insist the
-# target dir is named `target`, hence the nested CARGO_TARGET_DIR.
-RUN --mount=type=cache,id=cosmic-cargo-registry,target=/usr/local/cargo/registry,sharing=locked --mount=type=cache,id=cosmic-target,target=/cargo-target,sharing=locked \
-    mkdir -p /build/is && curl --retry-all-errors -fsSL --retry 5 https://github.com/pop-os/cosmic-initial-setup/archive/refs/tags/epoch-${COSMIC_VERSION}.tar.gz | tar -xz --strip-components=1 -C /build/is && \
-    cd /build/is && \
-    sed -i 's/\.wrap_err("could not get locale from locale1")?/.unwrap_or_default()/' src/page/language.rs && \
-    grep -q 'unwrap_or_default()' src/page/language.rs && ! grep -q 'could not get locale from locale1' src/page/language.rs && \
-    export CARGO_TARGET_DIR=/cargo-target/target VERGEN_GIT_COMMIT_DATE=1970-01-01 VERGEN_GIT_SHA=epoch-${COSMIC_VERSION} && \
-    cargo build --release --locked && just rootdir=/cosmic install && \
-    ! ldd /cosmic/usr/bin/cosmic-initial-setup | grep 'not found' && \
-    cd /build && rm -rf /build/is /cargo-target/*
-# Data-only components: the icon theme (just) and the wallpapers (make).
-RUN mkdir -p /build/icons /build/wallpapers && \
+# Data-only components: the icon theme (just), the wallpapers (make), and the
+# panel layouts of cosmic-initial-setup (/usr/share/cosmic-layouts), which
+# Isotope Welcome's Layout page reads. cosmic-initial-setup itself (its binary,
+# its autostart file) is not installed: Isotope Welcome is COSMIC's first-login
+# flow, as on the other variants.
+RUN mkdir -p /build/icons /build/wallpapers /build/is && \
     curl --retry-all-errors -fsSL --retry 5 https://github.com/pop-os/cosmic-icons/archive/refs/tags/epoch-${COSMIC_VERSION}.tar.gz | tar -xz --strip-components=1 -C /build/icons && \
     curl --retry-all-errors -fsSL --retry 5 https://github.com/pop-os/cosmic-wallpapers/archive/refs/tags/epoch-${COSMIC_VERSION}.tar.gz | tar -xz --strip-components=1 -C /build/wallpapers && \
+    curl --retry-all-errors -fsSL --retry 5 https://github.com/pop-os/cosmic-initial-setup/archive/refs/tags/epoch-${COSMIC_VERSION}.tar.gz | tar -xz --strip-components=1 -C /build/is && \
     (cd /build/icons && just rootdir=/cosmic install) && \
     (cd /build/wallpapers && make install DESTDIR=/cosmic prefix=/usr) && \
-    rm -rf /build/icons /build/wallpapers
+    (cd /build/is/res/layouts && find . -type f -exec install -Dm0644 '{}' '/cosmic/usr/share/cosmic-layouts/{}' \;) && \
+    test -d /cosmic/usr/share/cosmic-layouts/bottom-panel && \
+    rm -rf /build/icons /build/wallpapers /build/is
 
 # Only the installed trees, for CI to push (see cosmic-shell above).
 FROM scratch AS cosmic-shell-dist
@@ -3586,13 +3578,13 @@ FROM scratch AS cosmic
 COPY --from=cosmic-shell /cosmic /cosmic
 COPY --from=cosmic-apps /cosmic /cosmic
 
-# musl-locales: the `locale` command musl lacks. cosmic-initial-setup and
-# COSMIC Settings build their language lists from `locale -a`; without it the
-# first-run wizard shows an empty list and cannot go on. Alpine's patch makes
-# `locale -a` list every language, since musl has no compiled locales to
-# enumerate (its C library messages stay English; app UIs are translated).
+# musl-locales: the `locale` command musl lacks. COSMIC Settings builds its
+# language list from `locale -a`; without it the list is empty. Alpine's
+# patch makes `locale -a` list every language, since musl has no compiled
+# locales to enumerate (its C library messages stay English; app UIs are
+# translated).
 # Each name gets the .UTF-8 suffix glibc systems report, which is what
-# cosmic-initial-setup filters on; musl accepts any locale name.
+# COSMIC's language lists filter on; musl accepts any locale name.
 FROM toolchain AS musl-locales
 COPY --from=gettext-tools /gettext-tools /
 # renovate: datasource=gitlab-tags depName=adelie/musl-locales registryUrl=https://git.adelielinux.org extractVersion=^(?<version>\d+(\.\d+)*)$
@@ -5231,6 +5223,59 @@ RUN cd install-gui && \
     CGO_ENABLED=1 go build -tags nox11,novulkan -trimpath -ldflags="-s -w" -o /out/isotope-install-gui . && \
     { /out/isotope-install-gui --nonsense 2>/dev/null; [ $? -eq 2 ]; }
 
+# Isotope Welcome (welcome/), the graphical first-login flow, built like the
+# installer above. Two builds of the same source: Gio's X11 backend links
+# libX11, libX11-xcb, libXcursor, libXfixes and libxkbcommon-x11, which sway,
+# COSMIC and niri do not ship, so they get the -tags nox11 build, and i3 (which
+# has the X11 libraries, and the Wayland ones for the installer) the build
+# with X11. Both are built whatever DESKTOP is; welcome-${DESKTOP} below
+# picks one, as gl-${DESKTOP} does. The X11 headers and libraries are here
+# only to link the second build. CI runs the screenshot tests.
+FROM toolchain AS welcome-build
+COPY --from=wayland /wayland /
+COPY --from=libxkb /libxkb /
+COPY --from=libdrm /libdrm /
+COPY --from=gl / /
+COPY --from=xorgproto /xorgproto /
+COPY --from=xcbproto /xcbproto /
+COPY --from=libxau /libxau /
+COPY --from=libxcb /libxcb /
+COPY --from=x11-libs /x11-libs /
+COPY --from=libxkb-x11 /libxkb-x11 /
+COPY --from=golang:1.25.0-alpine3.22 /usr/local/go /usr/local/go
+ENV PATH=/usr/local/go/bin:$PATH GOTOOLCHAIN=local
+WORKDIR /src
+COPY guikit/go.mod guikit/go.sum guikit/
+COPY welcome/go.mod welcome/go.sum welcome/
+RUN cd welcome && go mod download
+COPY guikit/ guikit/
+COPY welcome/ welcome/
+# The tests read the app list and the shortcut sheets from the rootfs trees.
+COPY rootfs/usr/share/isotope/first-run-apps.list rootfs/usr/share/isotope/
+COPY rootfs-sway/usr/share/isotope/shortcuts.txt rootfs-sway/usr/share/isotope/
+COPY rootfs-i3/usr/share/isotope/shortcuts.txt rootfs-i3/usr/share/isotope/
+COPY rootfs-cosmic/usr/share/isotope/shortcuts.txt rootfs-cosmic/usr/share/isotope/
+COPY rootfs-niri/usr/share/isotope/shortcuts.txt rootfs-niri/usr/share/isotope/
+RUN cd welcome && \
+    CGO_ENABLED=1 ISOTOPE_GUI_SKIP_SCREENSHOTS=1 go test -tags nox11,novulkan . && \
+    CGO_ENABLED=1 go build -tags nox11,novulkan -trimpath -ldflags="-s -w" -o /out/wayland/isotope-welcome . && \
+    { /out/wayland/isotope-welcome --nonsense 2>/dev/null; [ $? -eq 2 ]; } && \
+    CGO_ENABLED=1 go build -tags novulkan -trimpath -ldflags="-s -w" -o /out/x11/isotope-welcome . && \
+    { /out/x11/isotope-welcome --nonsense 2>/dev/null; [ $? -eq 2 ]; }
+
+FROM scratch AS welcome-sway
+COPY --from=welcome-build /out/wayland/isotope-welcome /usr/bin/isotope-welcome
+FROM scratch AS welcome-cosmic
+COPY --from=welcome-build /out/wayland/isotope-welcome /usr/bin/isotope-welcome
+FROM scratch AS welcome-niri
+COPY --from=welcome-build /out/wayland/isotope-welcome /usr/bin/isotope-welcome
+FROM scratch AS welcome-i3
+COPY --from=welcome-build /out/x11/isotope-welcome /usr/bin/isotope-welcome
+# The server has no desktop and takes no welcome; the stage only keeps
+# welcome-${DESKTOP} resolvable, as gl-server does.
+FROM scratch AS welcome-server
+FROM welcome-${DESKTOP} AS welcome
+
 
 # ---------------------------------------------------------------------------
 # isotope-update: release checker, desktop notifier, `kairos-agent upgrade`
@@ -5517,6 +5562,9 @@ COPY --from=install-ui-build /out/isotope-install-ui /usr/bin/isotope-install-ui
 # here. The server image has neither and keeps the text installer.
 COPY --from=install-gui-build /out/isotope-install-gui /usr/bin/isotope-install-gui
 COPY --from=cage /cage/usr/bin/cage /usr/bin/cage
+# Isotope Welcome, the variant's build (welcome-${DESKTOP}). The sessions
+# start `isotope-welcome --login`; Dockerfile.agent removes it.
+COPY --from=welcome / /
 # libX11's Compose tables, data only. libxkbcommon reads them for the locale,
 # and Gio stops ("xkb_compose_table_new_from_locale failed") without them;
 # they also make dead keys work in the GUI. Only i3 ships libX11 itself.

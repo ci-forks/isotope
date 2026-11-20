@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
-# Prove isotope-notify-key sends each key to the variant's notification server,
-# and that a click on the welcome notification opens the shortcut sheet. Runs
-# the scripts in an Alpine container, with fake makoctl, dunstctl, noctalia,
-# busctl, gdbus and isotope-menu that log their arguments.
+# Prove isotope-notify-key sends each key to the variant's notification server.
+# Runs the script in an Alpine container, with fake makoctl, dunstctl,
+# noctalia and busctl that log their arguments.
 #
 #   test/notify/check-notify-keys.sh
 set -euo pipefail
@@ -11,7 +10,7 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 exec docker run --rm -i -v "$root/rootfs/usr/bin:/isotope:ro" alpine:3.22 sh -eu <<'EOF'
 log=/tmp/log
 mkdir -p /fake /etc/isotope
-for t in makoctl dunstctl noctalia isotope-menu; do
+for t in makoctl dunstctl noctalia; do
     printf '#!/bin/sh\necho "%s $*" >> %s\n' "$t" "$log" > /fake/$t
 done
 # mako's mode list and dunst's pause state, as the toggles leave them.
@@ -29,11 +28,9 @@ echo false > /tmp/dunst-paused
 # busctl: log the notification summary and answer with id 7.
 cat > /fake/busctl <<'B'
 #!/bin/sh
-for a; do case "$a" in Welcome*|Notifications\ on) echo "notify $a" >> /tmp/log ;; esac; done
+for a; do case "$a" in Notifications\ on) echo "notify $a" >> /tmp/log ;; esac; done
 echo "u 7"
 B
-# gdbus monitor: replay signals from /tmp/signals.
-printf '#!/bin/sh\ncat /tmp/signals\n' > /fake/gdbus
 chmod +x /fake/*
 export PATH=/fake:$PATH HOME=/tmp/home
 fail=0
@@ -72,25 +69,6 @@ check "cosmic dnd off"    "/isotope/isotope-notify-key dnd"         "notify Noti
 [ "$(cat $f)" = false ] && echo "ok   cosmic dnd file is false" || { echo "FAIL cosmic dnd file: $(cat $f)"; fail=1; }
 
 if /isotope/isotope-notify-key bogus 2>/dev/null; then echo "FAIL unknown key accepted"; fail=1; else echo "ok   unknown key refused"; fi
-
-# Welcome: a click (ActionInvoked for our id 7) opens the shortcut sheet; a
-# close, or a click on another notification, does not.
-welcome() { # name, signals, expected log
-    rm -rf $HOME/.local/state
-    printf '%s\n' "$2" > /tmp/signals
-    check "$1" "/isotope/isotope-welcome" "$3"
-}
-welcome "welcome click opens the sheet" \
-    "/org/freedesktop/Notifications: org.freedesktop.Notifications.ActionInvoked (uint32 7, 'default')" \
-    "$(printf 'notify Welcome to Isotope\nisotope-menu Help')"
-welcome "welcome closed: no sheet" \
-    "/org/freedesktop/Notifications: org.freedesktop.Notifications.NotificationClosed (uint32 7, 2)" \
-    "notify Welcome to Isotope"
-welcome "another notification's click: no sheet" \
-    "/org/freedesktop/Notifications: org.freedesktop.Notifications.ActionInvoked (uint32 17, 'default')" \
-    "notify Welcome to Isotope"
-[ -e $HOME/.local/state/isotope/welcomed ] && echo "ok   welcome stamp written" || { echo "FAIL no welcome stamp"; fail=1; }
-check "welcome shows once" "/isotope/isotope-welcome" ""
 
 exit $fail
 EOF

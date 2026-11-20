@@ -38,7 +38,7 @@ done
 check "no Mesa or LLVM" "! ls /usr/lib/libGL* /usr/lib/libEGL* /usr/lib/libLLVM* /usr/lib/dri 2>/dev/null | grep -q ."
 check "no GTK or Qt" "! ls /usr/lib/libgtk* /usr/lib/libQt* 2>/dev/null | grep -q ."
 check "no fontconfig fonts" "! test -d /usr/share/fonts"
-check "no desktop scripts" "! ls /usr/bin/isotope-menu /usr/bin/isotope-pick /usr/bin/start-desktop 2>/dev/null | grep -q ."
+check "no desktop scripts" "! ls /usr/bin/isotope-menu /usr/bin/isotope-pick /usr/bin/start-desktop /usr/bin/isotope-welcome /usr/bin/isotope-first-run-apps /usr/share/isotope/first-run-apps.list 2>/dev/null | grep -q ."
 check "no ly unit or session" "! test -e /usr/lib/systemd/system/ly@.service && ! test -d /usr/share/wayland-sessions"
 check "tty1 has a console login (getty not masked)" \
     "! test -L /etc/systemd/system/getty@tty1.service"

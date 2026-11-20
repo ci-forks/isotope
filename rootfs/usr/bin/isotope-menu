@@ -155,14 +155,14 @@ power() {
 }
 
 # An entry name as the argument opens it directly (`isotope-menu Help` is what
-# the welcome notification runs when clicked).
+# Isotope Welcome's Shortcuts page runs).
 # Each entry is "Label<TAB>icon"; isotope-pick shows the icon in fuzzel only.
-# "Install apps" reopens the first-run app picker. The agent image ships
-# neither it, the clipboard history nor isotope-ext (Dockerfile.agent removes
-# them).
+# "Install apps" opens Isotope Welcome's Apps page, "Welcome" the whole flow
+# again. The agent image ships neither Isotope Welcome, the clipboard history
+# nor isotope-ext (Dockerfile.agent removes them).
 tab=$(printf '\t')
 entries="Apps${tab}󰀻"
-command -v isotope-first-run-apps >/dev/null 2>&1 && entries="$entries
+command -v isotope-welcome >/dev/null 2>&1 && entries="$entries
 Install apps${tab}󰏗"
 entries="$entries
 Wi-Fi${tab}󰖩
@@ -190,6 +190,8 @@ if command -v isotope-recovery >/dev/null 2>&1 &&
     entries="$entries
 Recovery key${tab}󰌆"
 fi
+command -v isotope-welcome >/dev/null 2>&1 && entries="$entries
+Welcome${tab}󰋜"
 entries="$entries
 Help${tab}󰌌
 Power${tab}󰐥"
@@ -201,7 +203,8 @@ else
 fi
 case "$sel" in
     Apps)      apps ;;
-    "Install apps") exec isotope-first-run-apps ;;
+    "Install apps") exec isotope welcome apps ;;
+    Welcome)   exec isotope welcome ;;
     Wi-Fi)     panel wifi ;;
     Bluetooth) panel bluetooth ;;
     Audio)     panel audio ;;
