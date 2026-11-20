@@ -85,7 +85,7 @@ func (f *Flow) Current() PageID { return f.pages[f.idx] }
 func (f *Flow) Index() int { return f.idx }
 
 // Pages lists the pages of this flow.
-func (f *Flow) Pages() []PageID { return f.pages }
+func (f *Flow) Pages() []PageID { return append([]PageID(nil), f.pages...) }
 
 // Done reports that Next was called on the last page.
 func (f *Flow) Done() bool { return f.done }
@@ -101,6 +101,7 @@ func (f *Flow) Next() {
 
 // Back goes to the previous page and stays at the first.
 func (f *Flow) Back() {
+	f.done = false
 	if f.idx > 0 {
 		f.idx--
 	}
@@ -108,11 +109,34 @@ func (f *Flow) Back() {
 
 // Skip marks the current page skipped, then moves on.
 func (f *Flow) Skip() {
-	f.Outcome.Skipped = append(f.Outcome.Skipped, f.Current())
+	p := f.Current()
+	f.Outcome.Applied = without(f.Outcome.Applied, p)
+	f.Outcome.Skipped = with(f.Outcome.Skipped, p)
 	f.Next()
 }
 
 // Apply marks the current page applied.
 func (f *Flow) Apply() {
-	f.Outcome.Applied = append(f.Outcome.Applied, f.Current())
+	p := f.Current()
+	f.Outcome.Skipped = without(f.Outcome.Skipped, p)
+	f.Outcome.Applied = with(f.Outcome.Applied, p)
+}
+
+func with(l []PageID, p PageID) []PageID {
+	for _, x := range l {
+		if x == p {
+			return l
+		}
+	}
+	return append(l, p)
+}
+
+func without(l []PageID, p PageID) []PageID {
+	var out []PageID
+	for _, x := range l {
+		if x != p {
+			out = append(out, x)
+		}
+	}
+	return out
 }

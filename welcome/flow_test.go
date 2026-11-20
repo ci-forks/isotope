@@ -84,3 +84,50 @@ func TestSingle(t *testing.T) {
 		t.Fatalf("current %s", f.Current())
 	}
 }
+
+func TestApplyRecordsOnce(t *testing.T) {
+	f := NewFlow(Sway)
+	f.Apply()
+	f.Apply()
+	if !reflect.DeepEqual(f.Outcome.Applied, []PageID{PWelcome}) {
+		t.Fatalf("applied = %v", f.Outcome.Applied)
+	}
+}
+
+func TestSkipBackApply(t *testing.T) {
+	f := NewFlow(Sway)
+	f.Skip()
+	f.Back()
+	f.Apply()
+	if len(f.Outcome.Skipped) != 0 || !reflect.DeepEqual(f.Outcome.Applied, []PageID{PWelcome}) {
+		t.Fatalf("%+v", f.Outcome)
+	}
+}
+
+func TestApplyBackSkip(t *testing.T) {
+	f := NewFlow(Sway)
+	f.Apply()
+	f.Skip()
+	f.Back()
+	f.Skip()
+	if len(f.Outcome.Applied) != 0 || !reflect.DeepEqual(f.Outcome.Skipped, []PageID{PWelcome}) {
+		t.Fatalf("%+v", f.Outcome)
+	}
+}
+
+func TestBackAfterDone(t *testing.T) {
+	f := Single(PApps)
+	f.Next()
+	f.Back()
+	if f.Done() {
+		t.Fatal("Back should revive a finished flow")
+	}
+}
+
+func TestPagesIsCopy(t *testing.T) {
+	f := NewFlow(Sway)
+	f.Pages()[0] = PReady
+	if f.Current() != PWelcome {
+		t.Fatal("Pages leaked internal slice")
+	}
+}
