@@ -85,6 +85,12 @@ check "boot details entry passes loglevel=4, the install entry loglevel=3" \
     "entry 'isotope (boot details)' | grep -q ' loglevel=4 ' && ! entry 'isotope (boot details)' | grep -q ' loglevel=3 ' && entry 'isotope' | grep -q ' loglevel=3 '"
 check "debug entry has no bootvine" \
     "test -f '$CFG' && ! entry 'isotope (debug)' | grep -q bootvine"
+# Hadron ships dracut 110 or newer, which renamed rd.live.overlay.overlayfs to
+# rd.overlay and logs a deprecation warning for the old name.
+check "every live entry asks for the overlay as rd.overlay" \
+    "test -f '$CFG' && [ \"\$(grep -c '^ *linux ' '$CFG')\" -gt 0 ] && [ \"\$(grep -c '^ *linux ' '$CFG')\" -eq \"\$(grep -cE '^ *linux .* rd\.overlay( |\$)' '$CFG')\" ]"
+check "no deprecated rd.live.overlay.overlayfs" \
+    "test -f '$CFG' && ! grep -q 'rd\.live\.overlay\.overlayfs' '$CFG'"
 # GRUB has no hiddenentry command: on EFI it printed "can't find command".
 check "no hiddenentry"                  "test -f '$CFG' && ! grep -q hiddenentry '$CFG'"
 # Each echo opens a text box over the theme.

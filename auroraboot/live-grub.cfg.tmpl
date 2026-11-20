@@ -95,22 +95,22 @@ fi
 # boot are gone. The remote recovery entry is gone too (AuroraBoot#880): the
 # Kairos installer's welcome page offers the same handover.
 menuentry "isotope" --id isotope-install --class os --unrestricted {
-    linux ($root)/boot/kernel cdroot root=live:CDLABEL=COS_LIVE rd.live.dir=/ rd.live.squashimg=rootfs.squashfs net.ifnames=1 console=ttyS0 console=tty1 rd.cos.disable vga=795 install-mode-interactive selinux=0 $thor_options rd.live.overlay.overlayfs quiet splash loglevel=3 udev.log_level=3 systemd.show_status=false rd.systemd.show_status=false $isotope_vt_palette{{EXTEND_CMDLINE}}
+    linux ($root)/boot/kernel cdroot root=live:CDLABEL=COS_LIVE rd.live.dir=/ rd.live.squashimg=rootfs.squashfs net.ifnames=1 console=ttyS0 console=tty1 rd.cos.disable vga=795 install-mode-interactive selinux=0 $thor_options rd.overlay quiet splash loglevel=3 udev.log_level=3 systemd.show_status=false rd.systemd.show_status=false $isotope_vt_palette{{EXTEND_CMDLINE}}
     initrd ($root)/boot/initrd
 }
 
 menuentry "isotope (safe graphics)" --id isotope-install-safe-graphics --class os --unrestricted {
-    linux ($root)/boot/kernel cdroot root=live:CDLABEL=COS_LIVE rd.live.dir=/ rd.live.squashimg=rootfs.squashfs net.ifnames=1 console=ttyS0 console=tty1 rd.cos.disable vga=795{{NOMODESET}} install-mode-interactive selinux=0 $thor_options rd.live.overlay.overlayfs quiet splash loglevel=3 udev.log_level=3 systemd.show_status=false rd.systemd.show_status=false $isotope_vt_palette{{EXTEND_CMDLINE}}
+    linux ($root)/boot/kernel cdroot root=live:CDLABEL=COS_LIVE rd.live.dir=/ rd.live.squashimg=rootfs.squashfs net.ifnames=1 console=ttyS0 console=tty1 rd.cos.disable vga=795{{NOMODESET}} install-mode-interactive selinux=0 $thor_options rd.overlay quiet splash loglevel=3 udev.log_level=3 systemd.show_status=false rd.systemd.show_status=false $isotope_vt_palette{{EXTEND_CMDLINE}}
     initrd ($root)/boot/initrd
 }
 
 menuentry "isotope (text installer)" --id isotope-install-text --class os --unrestricted {
-    linux ($root)/boot/kernel cdroot root=live:CDLABEL=COS_LIVE rd.live.dir=/ rd.live.squashimg=rootfs.squashfs net.ifnames=1 console=ttyS0 console=tty1 rd.cos.disable vga=795 install-mode-interactive isotope.installer=text selinux=0 $thor_options rd.live.overlay.overlayfs quiet splash loglevel=3 udev.log_level=3 systemd.show_status=false rd.systemd.show_status=false $isotope_vt_palette{{EXTEND_CMDLINE}}
+    linux ($root)/boot/kernel cdroot root=live:CDLABEL=COS_LIVE rd.live.dir=/ rd.live.squashimg=rootfs.squashfs net.ifnames=1 console=ttyS0 console=tty1 rd.cos.disable vga=795 install-mode-interactive isotope.installer=text selinux=0 $thor_options rd.overlay quiet splash loglevel=3 udev.log_level=3 systemd.show_status=false rd.systemd.show_status=false $isotope_vt_palette{{EXTEND_CMDLINE}}
     initrd ($root)/boot/initrd
 }
 
 menuentry "isotope (boot local node from livecd)" --id isotope-boot-local --class os --unrestricted {
-    linux ($root)/boot/kernel cdroot root=live:CDLABEL=COS_LIVE rd.live.dir=/ rd.live.squashimg=rootfs.squashfs net.ifnames=1 console=ttyS0 console=tty1 kairos.boot_live_mode vga=795 selinux=0 $thor_options rd.live.overlay.overlayfs quiet splash loglevel=3 udev.log_level=3 systemd.show_status=false rd.systemd.show_status=false $isotope_vt_palette{{EXTEND_CMDLINE}}
+    linux ($root)/boot/kernel cdroot root=live:CDLABEL=COS_LIVE rd.live.dir=/ rd.live.squashimg=rootfs.squashfs net.ifnames=1 console=ttyS0 console=tty1 kairos.boot_live_mode vga=795 selinux=0 $thor_options rd.overlay quiet splash loglevel=3 udev.log_level=3 systemd.show_status=false rd.systemd.show_status=false $isotope_vt_palette{{EXTEND_CMDLINE}}
     initrd ($root)/boot/initrd
 }
 
@@ -122,12 +122,12 @@ menuentry "isotope (boot local node from livecd)" --id isotope-boot-local --clas
 # the other entries. The debug entry below stays without bootvine: bootvine
 # quiets the kernel console, which would hide rd.debug's output.
 menuentry "isotope (boot details)" --id isotope-boot-details --class os --unrestricted {
-    linux ($root)/boot/kernel cdroot root=live:CDLABEL=COS_LIVE rd.live.dir=/ rd.live.squashimg=rootfs.squashfs net.ifnames=1 console=ttyS0 console=tty1 rd.cos.disable vga=795 install-mode-interactive selinux=0 $thor_options rd.live.overlay.overlayfs quiet splash loglevel=4 udev.log_level=3 systemd.show_status=false rd.systemd.show_status=false isotope.bootvine $isotope_vt_palette{{EXTEND_CMDLINE}}
+    linux ($root)/boot/kernel cdroot root=live:CDLABEL=COS_LIVE rd.live.dir=/ rd.live.squashimg=rootfs.squashfs net.ifnames=1 console=ttyS0 console=tty1 rd.cos.disable vga=795 install-mode-interactive selinux=0 $thor_options rd.overlay quiet splash loglevel=4 udev.log_level=3 systemd.show_status=false rd.systemd.show_status=false isotope.bootvine $isotope_vt_palette{{EXTEND_CMDLINE}}
     initrd ($root)/boot/initrd
 }
 
 menuentry "isotope (debug)" --id isotope-debug --class os --unrestricted {
-    linux ($root)/boot/kernel cdroot root=live:CDLABEL=COS_LIVE rd.live.dir=/ rd.live.squashimg=rootfs.squashfs net.ifnames=1 console=tty0 rd.debug rd.shell rd.cos.disable rd.immucore.debug vga=795{{NOMODESET}} selinux=0 $thor_options rd.live.overlay.overlayfs $isotope_vt_palette{{EXTEND_CMDLINE}}
+    linux ($root)/boot/kernel cdroot root=live:CDLABEL=COS_LIVE rd.live.dir=/ rd.live.squashimg=rootfs.squashfs net.ifnames=1 console=tty0 rd.debug rd.shell rd.cos.disable rd.immucore.debug vga=795{{NOMODESET}} selinux=0 $thor_options rd.overlay $isotope_vt_palette{{EXTEND_CMDLINE}}
     initrd ($root)/boot/initrd
 }
 
