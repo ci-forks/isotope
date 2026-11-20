@@ -24,6 +24,7 @@ const (
 	netConnected                // online: "Connected to <name>"
 	netNoDevice                 // no Wi-Fi and no connection
 	netList                     // Wi-Fi networks to pick from
+	netError                    // the first look failed: Try again
 )
 
 // networkPage shows the connection, or the Wi-Fi networks to join. Every
@@ -42,32 +43,41 @@ type networkPage struct {
 	selected string // the SSID picked from the list
 	hidden   bool   // the "Hidden network…" form
 	busy     bool   // a Connect is running
+	loadErr  string // the first load failed
 
 	pass, ssid *guikit.Field // pass.Err holds the connect error
 	connectBtn widget.Clickable
 	hiddenLink widget.Clickable
 	listLink   widget.Clickable
 	rescan     widget.Clickable
+	retry      widget.Clickable
 	rows       map[string]*widget.Clickable
 }
 
 // load asks NetworkManager. It blocks; the page runs it in the background.
 func (p *networkPage) load() {
+	p.mu.Lock()
+	first := !p.loaded
+	p.mu.Unlock()
 	var st NetState
 	var aps []AccessPoint
+	var err error
 	if n := p.u.hooks.Network; n != nil {
-		if got, err := n.State(); err == nil {
-			st = got
-		}
-		if st.HasWifi && !st.Connected {
-			if got, err := n.AccessPoints(); err == nil {
-				aps = got
-			}
+		st, err = n.State()
+		if err == nil && st.HasWifi && !st.Connected {
+			aps, err = n.AccessPoints()
 		}
 	}
 	p.mu.Lock()
-	p.st, p.aps, p.loaded = st, aps, true
-	p.mu.Unlock()
+	defer p.mu.Unlock()
+	if err != nil {
+		// A rescan that fails keeps what the page already shows.
+		if first {
+			p.loadErr = "Could not reach NetworkManager: " + err.Error()
+		}
+		return
+	}
+	p.st, p.aps, p.loaded, p.loadErr = st, aps, true, ""
 }
 
 // background runs fn without blocking the frame.
@@ -89,6 +99,8 @@ func (p *networkPage) view() netView {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	switch {
+	case !p.loaded && p.loadErr != "":
+		return netError
 	case !p.loaded:
 		return netChecking
 	case p.st.Connected:
@@ -163,10 +175,6 @@ func (p *networkPage) connect() {
 	}
 	p.background(func() {
 		err := n.Connect(ssid, password, hidden)
-		var st NetState
-		if err == nil {
-			st, _ = n.State()
-		}
 		p.mu.Lock()
 		defer p.mu.Unlock()
 		p.busy = false
@@ -174,7 +182,7 @@ func (p *networkPage) connect() {
 			p.pass.Err = err.Error()
 			return
 		}
-		p.st = st
+		p.st = NetState{Connected: true, HasWifi: true, Name: ssid}
 	})
 }
 
@@ -220,6 +228,12 @@ func (p *networkPage) Update(gtx layout.Context) {
 		p.mu.Lock()
 		p.hidden = false
 		p.mu.Unlock()
+	}
+	if p.retry.Clicked(gtx) {
+		p.mu.Lock()
+		p.loadErr = ""
+		p.mu.Unlock()
+		p.background(p.load)
 	}
 	if p.rescan.Clicked(gtx) {
 		p.background(p.load)
@@ -268,6 +282,21 @@ func (p *networkPage) Body(gtx layout.Context) layout.Dimensions {
 			return u.Heading("Network", "Plug in a network cable, or continue without a network.")(gtx)
 		case netList:
 			return p.networks(gtx)
+		case netError:
+			p.mu.Lock()
+			msg := p.loadErr
+			p.mu.Unlock()
+			return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+				layout.Rigid(u.Heading("Network", "Isotope could not look for networks.")),
+				guikit.VGap(22),
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					gtx.Constraints.Max.X = min(gtx.Constraints.Max.X, guikit.Dp(gtx, 580))
+					return u.Warning(gtx, msg)
+				}),
+				guikit.VGap(16),
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					return u.Button(gtx, &p.retry, guikit.ButtonSecondary, "Try again", true)
+				}))
 		}
 		return u.Heading("Network", "Looking for networks…")(gtx)
 	})

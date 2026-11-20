@@ -199,6 +199,16 @@ func (n nmNetwork) AccessPoints() ([]AccessPoint, error) {
 // while activating: nearly always a wrong key.
 var errWrongPassword = fmt.Errorf("Wrong password")
 
+// connectFailure is the error of a connection that NetworkManager dropped
+// while activating. Only a network joined with a WPA-PSK password can say
+// the password was wrong.
+func connectFailure(ssid, password string) error {
+	if password != "" {
+		return errWrongPassword
+	}
+	return fmt.Errorf("Could not connect to %s", ssid)
+}
+
 func (n nmNetwork) Connect(ssid, password string, hidden bool) error {
 	c, err := n.conn()
 	if err != nil {
@@ -230,10 +240,7 @@ func (n nmNetwork) Connect(ssid, password string, hidden bool) error {
 		case nmDeactivated:
 			// Do not keep a profile that does not work.
 			_ = c.Object(nmName, settingsPath).Call(nmIface+".Settings.Connection.Delete", 0).Err
-			if password != "" {
-				return errWrongPassword
-			}
-			return fmt.Errorf("Could not connect to %s", ssid)
+			return connectFailure(ssid, password)
 		}
 		time.Sleep(500 * time.Millisecond)
 	}

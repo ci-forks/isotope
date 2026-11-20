@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"image"
@@ -141,6 +142,9 @@ var pages = []struct {
 		p.pass.Err = "Wrong password"
 	}},
 	{"network-no-device", Sway, 1, sizes, func(u *UI) { networkAt(u, &fakeNet{}) }},
+	{"network-load-error", Sway, 1, sizes, func(u *UI) {
+		networkAt(u, &fakeNet{stateErr: errors.New("no bus")})
+	}},
 	{"skip-confirm", Sway, 1, sizes, func(u *UI) { u.askSkip() }},
 	{"welcome-scale-2", Cosmic, 2, []image.Point{{1440, 900}}, func(*UI) {}},
 }

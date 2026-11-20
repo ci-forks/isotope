@@ -75,3 +75,12 @@ func TestWifiSettingsOpenAndHidden(t *testing.T) {
 		t.Errorf("hidden %v", s["802-11-wireless"]["hidden"])
 	}
 }
+
+func TestConnectFailureWording(t *testing.T) {
+	if err := connectFailure("Home", "pw"); err != errWrongPassword {
+		t.Errorf("with password: %v", err)
+	}
+	if err := connectFailure("Cafe", ""); err == nil || err.Error() != "Could not connect to Cafe" {
+		t.Errorf("open network: %v", err)
+	}
+}
