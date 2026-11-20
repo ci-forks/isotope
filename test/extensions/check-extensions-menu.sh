@@ -91,7 +91,9 @@ expect "isotope-help still ends with the update rows" "$(ISOTOPE_SHORTCUTS="$T/s
 expect "the image links isotope-ext to isotope" "$(grep -c '^RUN ln -sf isotope /usr/bin/isotope-ext$' /src/Dockerfile)" "$(grep -c '^COPY --from=update-build /out/isotope /usr/bin/isotope$' /src/Dockerfile)"
 expect "the polkit file declares the extensions action" "$(grep -c '<action id="io.kairos.isotope-update.extensions">' /src/rootfs/usr/share/polkit-1/actions/io.kairos.isotope-update.policy)" 1
 expect "the Kairos config ignores extension signatures" "$(grep -c '^  ignore_signatures: true$' /src/rootfs/etc/kairos/90_isotope_extensions.yaml)" 1
-expect "the default catalog list names hadron-layers" "$(grep -c '^catalog=https://kairos-io.github.io/hadron-layers/releases.json$' /src/rootfs/etc/isotope/extensions.conf)" 1
+expect "the default catalog list names Isotope's catalog, then hadron-layers" \
+    "$(grep '^catalog=' /src/rootfs/etc/isotope/extensions.conf | tr '\n' ' ')" \
+    "catalog=https://kairos-community.github.io/isotope/extensions.json catalog=https://kairos-io.github.io/hadron-layers/releases.json "
 expect "the agent image removes isotope-ext and the extension config" \
     "$(grep -c 'rm -f /usr/bin/isotope-ext /etc/isotope/extensions.conf /etc/kairos/90_isotope_extensions.yaml /system/oem/93_isotope_extensions.yaml' /src/Dockerfile.agent)" 1
 

@@ -37,9 +37,18 @@ import (
 	"time"
 )
 
-// defaultCatalog is the catalog Kairos itself defaults to. Our own catalog
-// comes first once it exists (phase 2 of the design).
-const defaultCatalog = "https://kairos-io.github.io/hadron-layers/releases.json"
+// isotopeCatalog lists Isotope's own extensions (extensions/ in this
+// repository, published by .github/workflows/extensions.yml). It comes before
+// hadronLayersCatalog, the catalog Kairos itself defaults to, so a name both
+// publish installs Isotope's build.
+const (
+	isotopeCatalog      = "https://kairos-community.github.io/isotope/extensions.json"
+	hadronLayersCatalog = "https://kairos-io.github.io/hadron-layers/releases.json"
+)
+
+// defaultCatalogs is the list used without extensions.conf, or without a
+// valid line in it. It matches the extensions.conf the image ships.
+func defaultCatalogs() []string { return []string{isotopeCatalog, hadronLayersCatalog} }
 
 // The extension job's outcome, Status.ExtResult. The values are part of the
 // bus interface.
@@ -116,16 +125,16 @@ var extGOARCH = runtime.GOARCH
 var systemdArch = map[string]string{"amd64": "x86-64", "arm64": "arm64"}
 
 // Catalogs reads extensions.conf: one `catalog=URL` per line, searched in
-// order. Without the file, or without one valid line, the default catalog.
+// order. Without the file, or without one valid line, the default catalogs.
 // A URL must be http or https and hold no comma: kairos-agent splits its
 // --catalog values on commas.
 func Catalogs() []string {
 	b, err := os.ReadFile(extConfFile())
 	if err != nil {
 		if !errors.Is(err, os.ErrNotExist) {
-			fmt.Fprintf(os.Stderr, "isotope: cannot read %s: %v; using the default catalog\n", extConfFile(), err)
+			fmt.Fprintf(os.Stderr, "isotope: cannot read %s: %v; using the default catalogs\n", extConfFile(), err)
 		}
-		return []string{defaultCatalog}
+		return defaultCatalogs()
 	}
 	var out []string
 	for _, line := range strings.Split(string(b), "\n") {
@@ -143,7 +152,7 @@ func Catalogs() []string {
 		out = append(out, v)
 	}
 	if len(out) == 0 {
-		return []string{defaultCatalog}
+		return defaultCatalogs()
 	}
 	return out
 }
