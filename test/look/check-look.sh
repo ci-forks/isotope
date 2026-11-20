@@ -61,4 +61,20 @@ if [ "$DESKTOP" = sway ]; then
         "p=\$(sed -n 's/^icon-path=//p' /etc/mako/config | tr ':' ' '); test -n \"\$p\"; for n in org.videolan.VLC protonvpn-tray; do f=; for d in \$p; do for x in \$d/*/[0-9]*/\$n.*; do test -e \"\$x\" && f=\$x; done; done; test -n \"\$f\" || exit 1; done"
 fi
 
+# --- COSMIC theme: the Isotope theme as COSMIC's system defaults ------------
+if [ "$DESKTOP" = cosmic ]; then
+    T=/usr/share/cosmic/com.system76.CosmicTheme
+    check "COSMIC theme dirs exist (dark, light, builders)" \
+        "for d in Dark Light Dark.Builder Light.Builder; do test -s $T.\$d/v2/accent || exit 1; done"
+    check "COSMIC defaults to dark" "test \"\$(cat $T.Mode/v1/is_dark)\" = true"
+    # The night accent of theme/palette.toml, as the hex COSMIC's config writes
+    # (RON: Some("#E9E7C1FF")). Compared case-insensitively.
+    want=$(cd "$(dirname "$0")/../.." && awk '/^\[night\]/{n=1;next} /^\[/{n=0} n && $1=="accent"{gsub(/"/,"",$3); print toupper(substr($3,2,6)); exit}' theme/palette.toml)
+    if [ -z "$want" ]; then echo "FAIL: no night accent in theme/palette.toml"; fail=1; fi
+    check "COSMIC dark builder accent is the Isotope accent #$want" \
+        "grep -qi '#${want}ff' $T.Dark.Builder/v2/accent"
+    check "COSMIC dark theme accent is the Isotope accent #$want" \
+        "grep -qi 'base: \"#${want}ff\"' $T.Dark/v2/accent"
+fi
+
 exit $fail

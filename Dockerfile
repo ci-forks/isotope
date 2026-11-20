@@ -5092,8 +5092,27 @@ COPY rootfs-sway/ /
 FROM common-config AS i3-config
 COPY rootfs-i3/ /
 
+# The Isotope theme as COSMIC's system defaults: the builder and the computed
+# theme, dark and light, written by libcosmic's own cosmic-theme crate from
+# theme/cosmic-theme.json, so the numbers are COSMIC's and not ours. The crate
+# sits at tools/isotope-cosmic-theme because its tests include_str the JSON as
+# ../../theme/cosmic-theme.json. The build fails if the computed accent differs
+# from the one in the JSON.
+FROM cosmic-build AS cosmic-theme
+WORKDIR /src
+COPY tools/isotope-cosmic-theme tools/isotope-cosmic-theme
+COPY theme/cosmic-theme.json theme/cosmic-theme.json
+RUN --mount=type=cache,id=cosmic-cargo-registry,target=/usr/local/cargo/registry,sharing=locked --mount=type=cache,id=cosmic-theme-target,target=/cargo-target,sharing=locked \
+    cd tools/isotope-cosmic-theme && export CARGO_TARGET_DIR=/cargo-target && \
+    cargo test --locked && \
+    cargo run --release --locked -- ../../theme/cosmic-theme.json /cosmic-theme/usr/share/cosmic && \
+    test -s /cosmic-theme/usr/share/cosmic/com.system76.CosmicTheme.Dark/v2/accent && \
+    test -s /cosmic-theme/usr/share/cosmic/com.system76.CosmicTheme.Light/v2/accent && \
+    test "$(cat /cosmic-theme/usr/share/cosmic/com.system76.CosmicTheme.Mode/v1/is_dark)" = true
+
 FROM common-config AS cosmic-config
 COPY rootfs-cosmic/ /
+COPY --from=cosmic-theme /cosmic-theme/ /
 
 FROM common-config AS niri-config
 COPY rootfs-niri/ /
