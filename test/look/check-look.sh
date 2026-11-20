@@ -135,15 +135,20 @@ if [ "$DESKTOP" = cosmic ]; then
         check "the login screen's soft $m wallpaper is a PNG ($W/isotope-desktop-$m-blur.png)" \
             "test \"\$(head -c 4 $W/isotope-desktop-$m-blur.png | tail -c 3)\" = PNG"
     done
-    check "the login screen's Isotope mark is installed" "grep -q '<svg' /usr/share/isotope/greeter-mark.svg"
-    brand=$(cd "$(dirname "$0")/../.." && awk '$0=="[night]"{n=1;next} /^\[/{n=0} n && $1=="brand"{gsub(/"/,"",$3); print $3; exit}' theme/palette.toml)
-    if [ -z "$brand" ]; then echo "FAIL: no night brand in theme/palette.toml"; fail=1; else
-        check "the login screen's mark is the brand colour $brand" "grep -qi 'fill=\"$brand\"' /usr/share/isotope/greeter-mark.svg"
-    fi
-    # The greeter is built with patches/cosmic/cosmic-greeter: it names the
-    # mark and the soft wallpapers.
-    check "cosmic-greeter is the patched, centred one (names greeter-mark.svg and -blur.png)" \
-        "grep -qa greeter-mark.svg /usr/bin/cosmic-greeter && grep -qa -- -blur.png /usr/bin/cosmic-greeter"
+    # The mark: the night brand under a dark theme, the day palette's mark
+    # (ink shell, deep brand core) under a light one.
+    role_of() { (cd "$(dirname "$0")/../.." && awk -v sec="[$1]" -v r="$2" '$0==sec{n=1;next} /^\[/{n=0} n && $1==r{gsub(/"/,"",$3); print $3; exit}' theme/palette.toml); }
+    for f in greeter-mark.svg:night:brand greeter-mark-day.svg:day:text greeter-mark-day.svg:day:brand_deep; do
+        IFS=: read -r file mode role <<<"$f"
+        want=$(role_of "$mode" "$role")
+        if [ -z "$want" ]; then echo "FAIL: no $mode $role in theme/palette.toml"; fail=1; continue; fi
+        check "the login screen's $file has the $mode $role $want" \
+            "grep -q '<svg' /usr/share/isotope/$file && grep -qi 'fill=\"$want\"' /usr/share/isotope/$file"
+    done
+    # The greeter is built with patches/cosmic/cosmic-greeter: it names both
+    # marks and the soft wallpapers.
+    check "cosmic-greeter is the patched, centred one (names both marks and -blur.png)" \
+        "grep -qa greeter-mark.svg /usr/bin/cosmic-greeter && grep -qa greeter-mark-day.svg /usr/bin/cosmic-greeter && grep -qa -- -blur.png /usr/bin/cosmic-greeter"
 fi
 
 # --- The palette reaches every themed file (repository check) --------------

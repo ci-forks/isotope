@@ -2,8 +2,10 @@ Isotope: a centred login screen in the desktop's look.
 
 What: re-lays out the greeter's menu (App::menu in src/greeter.rs) over the
 whole output instead of a two-column card 866 px wide:
-- top left, the Isotope mark (/usr/share/isotope/greeter-mark.svg, in the
-  palette's brand colours) and the "ISOTOPE" wordmark;
+- top left, the Isotope mark and the "ISOTOPE" wordmark. The mark is
+  /usr/share/isotope/greeter-mark.svg (the night brand colours) under a dark
+  theme and greeter-mark-day.svg (an ink shell with a deep brand core, the
+  day palette's mark) under a light one, so it reads on both soft wallpapers;
 - top right, a strip with the keyboard layout chooser, the on-screen keyboard
   toggle, the session chooser, and the network and battery icons;
 - top centre, the date and a large clock (about 8.5% of the screen width);
@@ -44,7 +46,6 @@ has.
 Made against cosmic-greeter epoch-1.11.0 (80e8a104b75a), with libcosmic
 430f3d48a97d.
 
-diff -ruN a/i18n/en/cosmic_greeter.ftl b/i18n/en/cosmic_greeter.ftl
 diff -ruN a/i18n/en/cosmic_greeter.ftl b/i18n/en/cosmic_greeter.ftl
 --- a/i18n/en/cosmic_greeter.ftl
 +++ b/i18n/en/cosmic_greeter.ftl
@@ -269,7 +270,7 @@ diff -ruN a/src/greeter.rs b/src/greeter.rs
  use crate::fl;
  
  static USERNAME_ID: LazyLock<iced::id::Id> = LazyLock::new(|| iced::id::Id::new("username-id"));
-@@ -493,534 +494,595 @@
+@@ -493,534 +494,600 @@
          .discard()
      }
  
@@ -560,7 +561,7 @@ diff -ruN a/src/greeter.rs b/src/greeter.rs
 +                icon_color: Some(on),
 +                text_color: Some(on),
 +                ..Default::default()
-+            }
+             }
 +        }
 +        fn glass_class() -> theme::Button {
 +            theme::Button::Custom {
@@ -568,7 +569,7 @@ diff -ruN a/src/greeter.rs b/src/greeter.rs
 +                disabled: Box::new(|theme| glass(theme, 0.2, false)),
 +                hovered: Box::new(|focused, theme| glass(theme, 0.55, focused)),
 +                pressed: Box::new(|focused, theme| glass(theme, 0.7, focused)),
-             }
++            }
 +        }
 +        // A round glass button with its label under it.
 +        fn glass_action<'a>(
@@ -599,18 +600,24 @@ diff -ruN a/src/greeter.rs b/src/greeter.rs
 -            let mut accessibility_dropdown = widget::popover(
 -                widget::button::custom(widget::icon::from_name(
 -                    "applications-accessibility-symbolic",
-+        // Top left: the Isotope mark and wordmark.
+-                ))
+-                .padding(12.0)
+-                .on_press(Message::DropdownToggle(Dropdown::Accessibility)),
++        // Top left: the Isotope mark and wordmark. The mark has a version
++        // for light themes (ink shell, deep brand core), as on the day
++        // wallpaper, so it reads on the light soft wallpaper.
++        let mark_path = if cosmic::theme::is_dark() {
++            "/usr/share/isotope/greeter-mark.svg"
++        } else {
++            "/usr/share/isotope/greeter-mark-day.svg"
++        };
 +        let brand = widget::row::with_capacity(2)
 +            .spacing(10.0)
 +            .align_y(Alignment::Center)
 +            .push(
-+                widget::svg(widget::svg::Handle::from_path(
-+                    "/usr/share/isotope/greeter-mark.svg",
-                 ))
--                .padding(12.0)
--                .on_press(Message::DropdownToggle(Dropdown::Accessibility)),
-+                .width(Length::Fixed(22.0))
-+                .height(Length::Fixed(22.0)),
++                widget::svg(widget::svg::Handle::from_path(mark_path))
++                    .width(Length::Fixed(22.0))
++                    .height(Length::Fixed(22.0)),
              )
 -            .position(widget::popover::Position::Bottom);
 -
@@ -1344,7 +1351,7 @@ diff -ruN a/src/greeter.rs b/src/greeter.rs
  
          // TODO make these opaque?
          let popover = widget::popover(menu).modal(true);
-@@ -1145,6 +1207,8 @@
+@@ -1145,6 +1212,8 @@
          common.on_output_event = Some(Box::new(|output_event, output| {
              Message::OutputEvent(output_event, output)
          }));
@@ -1353,7 +1360,7 @@ diff -ruN a/src/greeter.rs b/src/greeter.rs
          tasks.push(common_task);
  
          //TODO: use full_name?
-@@ -1291,21 +1355,14 @@
+@@ -1291,21 +1360,14 @@
                          let unwrapped_size = size
                              .map(|s| (s.0.unwrap_or(1920), s.1.unwrap_or(1080)))
                              .unwrap_or((1920, 1080));
@@ -1381,7 +1388,7 @@ diff -ruN a/src/greeter.rs b/src/greeter.rs
                          self.common
                              .subsurface_rects
                              .insert(output.clone(), Rectangle::new(loc, sub_size));
-@@ -1372,7 +1429,13 @@
+@@ -1372,7 +1434,13 @@
                          match self.common.surface_ids.remove(&output) {
                              Some(surface_id) => {
                                  self.common.surface_images.remove(&surface_id);
@@ -1395,7 +1402,7 @@ diff -ruN a/src/greeter.rs b/src/greeter.rs
                                  if let Some(n) = self.common.surface_names.remove(&surface_id) {
                                      self.common.text_input_ids.remove(&n);
                                  }
-@@ -1915,12 +1978,9 @@
+@@ -1915,12 +1983,9 @@
                      tracing::error!("Failed to find subsurface menu id");
                      return Task::none();
                  };
@@ -1411,7 +1418,7 @@ diff -ruN a/src/greeter.rs b/src/greeter.rs
              }
          }
          Task::none()
-@@ -1938,11 +1998,34 @@
+@@ -1938,11 +2003,34 @@
              .surface_images
              .get(&surface_id)
              .unwrap_or(&self.common.fallback_background);
@@ -1449,7 +1456,7 @@ diff -ruN a/src/greeter.rs b/src/greeter.rs
      }
  
      fn subscription(&self) -> Subscription<Self::Message> {
-@@ -1961,6 +2044,50 @@
+@@ -1961,6 +2049,50 @@
      }
  }
  

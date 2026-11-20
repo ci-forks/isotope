@@ -185,6 +185,15 @@ RULES = {
         (r'^<path fill="#{hex}" d="M266\.24 33\.34L', "brand_glow"),
         (r'^<circle fill="#{hex}" cx="245\.76" cy="273\.61"', "brand_glow"),
     ]),
+    # Its light-theme version, the day palette's mark (gen-wallpaper.py's day
+    # mark and palette.toml's day brand_deep): the shell in ink (text), the
+    # lifted side and core in brand_deep, so it reads on the light soft
+    # wallpaper. The greeter picks it when its theme is light.
+    "rootfs-cosmic/usr/share/isotope/greeter-mark-day.svg": ("hash", "hash", [
+        (r'^<path fill="#{hex}" d="M423\.12 171\.21L', "day.text"),
+        (r'^<path fill="#{hex}" d="M266\.24 33\.34L', "day.brand_deep"),
+        (r'^<circle fill="#{hex}" cx="245\.76" cy="273\.61"', "day.brand_deep"),
+    ]),
     # The update tray icon: the mark in the panel's text colour, a badge per
     # daemon state, the badge glyph in on_accent. One set for dark panels
     # (night), then one for light panels (day).
