@@ -348,7 +348,10 @@ This replaces the `isotope-welcome` notification.
 
 What was set and installed, what failed (with Try again), and, if the
 language changed, "Log out to use <language>" with Log out. Finish closes
-the window and writes the stamp. "You can open this again from the Isotope
+the window and writes the stamp. Amendment (final review I1): while the Apps
+batch still installs, Log out is disabled and reads "Installing apps…",
+because ending the session kills the installs; it becomes Log out when the
+batch ends. "You can open this again from the Isotope
 menu (Super+Esc → Welcome)".
 
 ## The Backup page
@@ -477,6 +480,12 @@ At session start, where each variant starts `isotope-welcome` and
    a user from before this change is never asked again;
 2. otherwise opens the flow. The stamp is written on Finish, or when the
    user closes the window ("Skip setup?" asks first; closing is a skip).
+   Amendment (final review I1, I2): a skip or close while the apps are not
+   done writes `apps-pending`, not `skipped`, so the next login reminds:
+   Apps was skipped offline, the Apps page was still checking the network
+   (that counts as offline), or a batch was still installing. Only one
+   whole flow runs at a time (a lock in `$XDG_RUNTIME_DIR`), and a window
+   that fails before it can draw writes no stamp.
 
 Removed or replaced:
 
