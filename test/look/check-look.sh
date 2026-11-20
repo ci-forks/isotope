@@ -120,6 +120,8 @@ if [ "$DESKTOP" = cosmic ]; then
     check "CosmicComp active_hint is false"    "grep -qx false $P/active_hint"
     check "CosmicComp shadows tiled windows"   "grep -q 'shadow_tiled_windows: true' $P/appearance_settings"
     L=/usr/share/cosmic-layouts/isotope
+    check "the wallpaper follows light and dark (autostart entry, COSMIC only)" \
+        "grep -qx 'Exec=isotope wallpaper-follow' /etc/xdg/autostart/isotope-wallpaper.desktop && grep -qx 'OnlyShowIn=COSMIC;' /etc/xdg/autostart/isotope-wallpaper.desktop && isotope help | grep -q wallpaper-follow"
     check "the Isotope layout has an icon and a name" "test -s $L/icon.png && grep -q '^name en=\"Isotope\"' $L/layout.kdl"
     check "the system panel defaults are the Isotope layout's (no drift)" \
         "set -- $L/com.system76.CosmicPanel*; test -d \$1 && for d in \"\$@\"; do diff -r \$d /usr/share/cosmic/\$(basename \$d) || exit 1; done"
