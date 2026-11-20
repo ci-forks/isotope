@@ -158,6 +158,17 @@ var pages = []struct {
 	{"language-readonly", Sway, 1, sizes, func(u *UI) {
 		languageAt(u, &fakeSettings{}, false, "de_DE.UTF-8")
 	}},
+	{"appearance-tiling", Sway, 1, sizes, func(u *UI) {
+		u.hooks.Runner = &fakeRunner{out: map[string]string{"gsettings get org.gnome.desktop.interface color-scheme": "'prefer-dark'\n"}}
+		to(u, PAppearance)
+	}},
+	{"appearance-cosmic", Cosmic, 1, sizes, func(u *UI) {
+		u.hooks.Runner = &fakeRunner{}
+		to(u, PAppearance)
+		p := u.page().(*appearancePage)
+		p.start()
+		p.pick, p.frosted = 0, true
+	}},
 	{"skip-confirm", Sway, 1, sizes, func(u *UI) { u.askSkip() }},
 	{"welcome-scale-2", Cosmic, 2, []image.Point{{1440, 900}}, func(*UI) {}},
 }

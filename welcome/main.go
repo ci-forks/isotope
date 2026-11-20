@@ -117,6 +117,7 @@ func main() {
 		// whether it starts read-only.
 		Settings:     daemonSettings{},
 		Admin:        InAdminGroup(),
+		Home:         home,
 		SystemLocale: systemLocale(),
 		AppInstalled: func(id string) {
 			// The chosen browser goes to the COSMIC dock.

@@ -44,6 +44,9 @@ type Hooks struct {
 	Admin bool
 	// SystemLocale is the LANG of /etc/locale.conf, "" when it has none.
 	SystemLocale string
+	// Home is the user's home directory, where the Appearance page writes
+	// the GTK and COSMIC settings.
+	Home string
 	// AppInstalled is called, from a background goroutine, for each app
 	// that installed: main pins a browser to the COSMIC dock.
 	AppInstalled func(id string)
