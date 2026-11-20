@@ -3,7 +3,7 @@
 
 theme/palette.toml names each colour by its role (base, text, accent, dim...).
 The configs the programs read (sway, i3, waybar, foot, fuzzel, mako, dunst,
-dmenu, niri, st, Noctalia, the update tray icon, the GRUB theme, the boot
+dmenu, niri, st, Noctalia, COSMIC's theme overlay, the update tray icon, the GRUB theme, the boot
 splash, the console palette on the kernel command line) stay plain files in
 the tree; this script only
 rewrites the colour values in them, so they never drift from the palette and a
@@ -190,6 +190,23 @@ RULES = {
 }
 
 NOCTALIA = "rootfs-niri/usr/share/isotope/noctalia-palettes/Isotope.json"
+COSMIC_THEME = "theme/cosmic-theme.json"
+
+# COSMIC's non-colour theme keys, the same in both modes. Types at the libcosmic
+# rev cosmic-settings epoch-1.11.0 pins: `frosted` is a BlurStrength variant
+# name, `gaps` is (outer, inner) u32, `active_hint` a u32 width, and
+# `corner_radii` a Roundness variant name (Round, SlightlyRound, Square).
+COSMIC_LOOK = {
+    "frosted": "Medium",
+    "frosted_windows": True,
+    "frosted_system_interface": True,
+    "frosted_panel": True,
+    "frosted_applets": True,
+    "frosted_maximized_apps": False,
+    "active_hint": 0,
+    "gaps": [0, 12],
+    "corner_radii": "Round",
+}
 
 # The Linux console's 16 colours, set from the kernel command line so the boot
 # messages, ly and the installer sit on the desktop's violet ink instead of black.
@@ -315,6 +332,56 @@ def noctalia_palette(pal):
     return json.dumps(out, indent=2) + "\n"
 
 
+def mix(a, b):
+    """The per-channel sRGB midpoint of two #rrggbb colours, rounded half up."""
+    return "#" + "".join(f"{(int(a[i:i + 2], 16) + int(b[i:i + 2], 16) + 1) // 2:02x}" for i in (1, 3, 5))
+
+
+def luminance(h):
+    def c(v):
+        v /= 255
+        return v / 12.92 if v <= 0.04045 else ((v + 0.055) / 1.055) ** 2.4
+    r, g, b = (int(h[i:i + 2], 16) for i in (1, 3, 5))
+    return 0.2126 * c(r) + 0.7152 * c(g) + 0.0722 * c(b)
+
+
+def cosmic_theme(pal):
+    """COSMIC theme overlay as a dict: per mode the CosmicPaletteInner fields we
+    set, the ThemeBuilder colour fields, on_accent and the COSMIC_LOOK keys."""
+    out = {}
+    for mode, p in (("dark", pal["night"]), ("light", pal["day"])):
+        ramp = [p["crust"], p["base"], p["surface"], p["overlay"], p["border"], p["muted"],
+                mix(p["muted"], p["dim"]), p["dim"], mix(p["dim"], p["subtext"]), p["subtext"], p["text"]]
+        if mode == "light":
+            ramp.sort(key=luminance, reverse=True)
+        palette = {f"neutral_{i}": c for i, c in enumerate(ramp)}
+        palette.update({
+            "name": "Isotope",
+            "bright_red": p["error"], "accent_red": p["error"],
+            "bright_green": p["success"], "accent_green": p["success"],
+            "bright_orange": p["warning"], "accent_yellow": p["warning"],
+            "accent_orange": p["orange"],
+            "accent_purple": p["violet"], "accent_pink": p["violet"],
+            "accent_blue": p["blue"], "accent_indigo": p["blue"],
+            "accent_warm_grey": p["muted"],
+        })
+        out[mode] = {
+            "palette": palette,
+            "builder": {
+                "accent": p["accent"], "success": p["success"], "warning": p["warning"],
+                "destructive": p["error"], "bg_color": p["base"],
+                "primary_container_bg": p["surface"], "secondary_container_bg": p["overlay"],
+            },
+            "on_accent": p["on_accent"],
+            "look": dict(COSMIC_LOOK),
+        }
+    return out
+
+
+def cosmic_theme_json(pal):
+    return json.dumps(cosmic_theme(pal), indent=2, sort_keys=True) + "\n"
+
+
 def contrast_errors(pal):
     def lum(h):
         def c(v):
@@ -355,6 +422,8 @@ def main():
         outputs[rel] = (text, new)
     path = ROOT / NOCTALIA
     outputs[NOCTALIA] = (path.read_text() if path.exists() else None, noctalia_palette(pal))
+    path = ROOT / COSMIC_THEME
+    outputs[COSMIC_THEME] = (path.read_text() if path.exists() else None, cosmic_theme_json(pal))
     if errors:
         sys.exit("\n".join(errors))
     drift = [rel for rel, (old, new) in outputs.items() if old != new]

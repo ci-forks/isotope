@@ -208,6 +208,9 @@ jobs:
           python3 tools/test_gen_shortcuts.py
           python3 tools/gen-shortcuts.py --check
 
+      - name: COSMIC theme overlay
+        run: python3 tools/test_gen_theme.py
+
       - name: Notification keys
         run: test/notify/check-notify-keys.sh
       # The emoji picker with a fake picker, clipboard and notifier, the
