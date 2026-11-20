@@ -408,7 +408,7 @@ cmd_contract() {
   # writable device, and kairos.boot_live_mode boots the appliance
   # NON-DESTRUCTIVELY. NO bootindex here: it conflicts with the direct-kernel
   # path (UEFI-CD install uses bootindex; direct-kernel live must not).
-  local cmdline="cdroot root=live:CDLABEL=COS_LIVE rd.live.dir=/ rd.live.squashimg=rootfs.squashfs rd.live.overlay.overlayfs net.ifnames=1 console=tty1 console=ttyS0 kairos.boot_live_mode selinux=0 systemd.mask=serial-getty@ttyS0.service"
+  local cmdline="cdroot root=live:CDLABEL=COS_LIVE rd.live.dir=/ rd.live.squashimg=rootfs.squashfs rd.overlay net.ifnames=1 console=tty1 console=ttyS0 kairos.boot_live_mode selinux=0 systemd.mask=serial-getty@ttyS0.service"
 
   finfo "Booting live agent (MCP 127.0.0.1:$mcp_port -> :7443, VNC 127.0.0.1:$vnc_port)"
   qemu-system-x86_64 "${AGENT_ACCEL[@]}" -m "${MEM:-4096}" -smp "${CPUS:-4}" \
@@ -675,7 +675,7 @@ cmd_generic() {
   _agent_find_ovmf "$ovmf_vars" || return 1
   rm -f "$qmp" "$serial"; touch "$serial"
 
-  local cmdline="cdroot root=live:CDLABEL=COS_LIVE rd.live.dir=/ rd.live.squashimg=rootfs.squashfs rd.live.overlay.overlayfs net.ifnames=1 console=tty1 console=ttyS0 kairos.boot_live_mode selinux=0 systemd.mask=serial-getty@ttyS0.service"
+  local cmdline="cdroot root=live:CDLABEL=COS_LIVE rd.live.dir=/ rd.live.squashimg=rootfs.squashfs rd.overlay net.ifnames=1 console=tty1 console=ttyS0 kairos.boot_live_mode selinux=0 systemd.mask=serial-getty@ttyS0.service"
 
   finfo "Booting plain desktop ISO live (VNC 127.0.0.1:$vnc_port)"
   qemu-system-x86_64 "${AGENT_ACCEL[@]}" -m "${MEM:-4096}" -smp "${CPUS:-4}" \
@@ -1956,7 +1956,7 @@ touch "$CONSOLE"
 #   - nomodeset     (blocks virtio-gpu KMS -> no DRM scanout, virtio_gpu -EINVAL)
 #   - vga=795       (legacy vesafb hint that can fight KMS)
 # Do NOT re-add nomodeset / install-mode / vga=795.
-KERNEL_CMDLINE="cdroot root=live:CDLABEL=COS_LIVE rd.live.dir=/ rd.live.squashimg=rootfs.squashfs rd.live.overlay.overlayfs net.ifnames=1 console=ttyS0 console=tty1 rd.cos.disable selinux=0"
+KERNEL_CMDLINE="cdroot root=live:CDLABEL=COS_LIVE rd.live.dir=/ rd.live.squashimg=rootfs.squashfs rd.overlay net.ifnames=1 console=ttyS0 console=tty1 rd.cos.disable selinux=0"
 
 # virtio-vga + -vnc gives the real DRM-backed scanout we screendump later.
 # NEVER add -display none / -nographic here: that would defeat the phase.
