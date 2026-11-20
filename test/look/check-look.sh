@@ -55,7 +55,10 @@ if [ "$DESKTOP" = i3 ]; then
         "grep -qx '[[:space:]]*enable_recursive_icon_lookup = true' /etc/dunst/dunstrc"
 fi
 if [ "$DESKTOP" = sway ]; then
-    check "mako resolves icons from Conflux" "grep -q '^icon-path=.*Conflux' /etc/mako/config"
+    # mako globs <icon-path>/*/<number>/<name>.*, so test that glob for an app
+    # icon (a link) and a status icon, with the icon-path from its own config.
+    check "mako finds an app icon and a status icon in its icon-path" \
+        "p=\$(sed -n 's/^icon-path=//p' /etc/mako/config | tr ':' ' '); test -n \"\$p\"; for n in org.videolan.VLC protonvpn-tray; do f=; for d in \$p; do for x in \$d/*/[0-9]*/\$n.*; do test -e \"\$x\" && f=\$x; done; done; test -n \"\$f\" || exit 1; done"
 fi
 
 exit $fail

@@ -3636,6 +3636,7 @@ RUN curl --retry-all-errors -fsSL --retry 5 https://icon-theme.freedesktop.org/r
 # few Flathub and COSMIC app IDs: theme/conflux-links.txt links those IDs to the
 # Conflux icon that fits. Apps with none are in theme/conflux-missing.txt.
 # Conflux ships a few dangling links (ProtonVPN status icons); they are removed.
+# mako globs <icon-path>/*/<number>/<name>.*, so apps/48 points at apps/scalable.
 # `find -L -type l` lists only broken links, and BusyBox find lacks -xtype.
 FROM toolchain AS icon-themes
 # Conflux has no release tags.
@@ -3652,17 +3653,20 @@ RUN i=/icon-themes/usr/share/icons && c=$i/Conflux && \
      for d in freedesktop extra; do (cd $d && find ./scalable -type f -exec install -Dm0644 '{}' "$i/Cosmic/{}" \;); done; \
      install -Dm0644 index.theme $i/Cosmic/index.theme) && \
     grep -v '^#' /build/conflux-links.txt | while read -r id name; do \
-      [ -n "$id" ] || continue; \
+      [ -n "$id" ] || continue; n=0; \
       for d in apps/scalable apps@2x/scalable; do \
-        [ -e "$c/$d/$name.svg" ] && ln -sf "$name.svg" "$c/$d/$id.svg"; \
-      done; true; \
+        if [ -e "$c/$d/$name.svg" ]; then ln -sf "$name.svg" "$c/$d/$id.svg"; n=$((n+1)); fi; \
+      done; \
+      [ $n -gt 0 ] || { echo "conflux-links.txt: no $name.svg in Conflux for $id" >&2; exit 1; }; \
     done && \
+    ln -s scalable $c/apps/48 && \
     install -Dm0644 /build/conflux-missing.txt /icon-themes/usr/share/isotope/conflux-missing.txt && \
     rm -rf /build/cosmic-icons && \
     find -L $c -type l -exec rm -f {} + && \
     grep -qx 'Inherits=Cosmic,hicolor' $c/index.theme && \
     test -f $i/Cosmic/index.theme && \
     test -e $c/apps/scalable/org.videolan.VLC.svg && \
+    test -e $c/apps/48/org.videolan.VLC.svg && \
     test -z "$(find -L $c -type l)"
 
 # The UI fonts libcosmic defaults to (Open Sans, Noto Sans Mono), installed
