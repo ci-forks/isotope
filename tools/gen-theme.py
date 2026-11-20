@@ -17,7 +17,8 @@ How a colour is found: RULES below lists, per file, a line pattern with one
 list for one role per matching line in file order, a tuple for one role per
 slot of a line. A pattern that matches nothing, or a list whose length is not
 the number of matching lines, is an error,
-so a renamed key cannot silently stop being themed. The VT_PALETTE files hold
+so a renamed key cannot silently stop being themed. A role is a night colour;
+"day.<role>" is its day colour, for a file that carries both. The VT_PALETTE files hold
 a generated value instead: the kernel's vt.default_red/grn/blu lists, which
 must be present. In files marked strict, a colour that no rule claims is an
 error too: add a rule for it (or use a role name, as waybar's @define-color
@@ -175,14 +176,16 @@ RULES = {
         (r"""^\s+-e 's\|"gray90", /\\\* default foreground colour \\\*/\|"#{hex}", """, "text"),
         (r"""^\s+-e 's\|"black", /\\\* default background colour \\\*/\|"#{hex}", """, "base"),
     ]),
-    # The update tray icon: a disc per daemon state, the glyph in on_accent.
+    # The update tray icon: the mark in the panel's text colour, a badge per
+    # daemon state, the badge glyph in on_accent. One set for dark panels
+    # (night), then one for light panels (day).
     "update/icons.go": (None, "kdl", [
-        (r'^\t"idle":\s+rgb\(0x{hex}\),$', "brand"),  # idle is Isotope at rest: brand
-        (r'^\t"update":\s+rgb\(0x{hex}\),$', "success"),
-        (r'^\t"busy":\s+rgb\(0x{hex}\),$', "warning"),
-        (r'^\t"reboot":\s+rgb\(0x{hex}\),$', "violet"),
-        (r'^\t"error":\s+rgb\(0x{hex}\),$', "error"),
-        (r"^var glyphColor = rgb\(0x{hex}\)$", "on_accent"),
+        (r"^\t\tmark:\s+rgb\(0x{hex}\),$", ["text", "day.text"]),
+        (r'^\t\t\t"update":\s+rgb\(0x{hex}\),$', ["accent", "day.accent"]),
+        (r'^\t\t\t"busy":\s+rgb\(0x{hex}\),$', ["warning", "day.warning"]),
+        (r'^\t\t\t"reboot":\s+rgb\(0x{hex}\),$', ["violet", "day.violet"]),
+        (r'^\t\t\t"error":\s+rgb\(0x{hex}\),$', ["error", "day.error"]),
+        (r"^\t\tglyph:\s+rgb\(0x{hex}\),$", ["on_accent", "day.on_accent"]),
     ]),
 }
 
@@ -223,8 +226,9 @@ def load_palette():
     return pal
 
 
-def theme_file(rel, text, night):
-    """Return (new text, errors) with every claimed colour set from `night`."""
+def theme_file(rel, text, colours):
+    """Return (new text, errors) with every claimed colour set from `colours`,
+    a role -> #rrggbb map (night roles, and day ones as "day.<role>")."""
     literal, comment, rules = RULES[rel]
     lines = text.split("\n")
     claimed = set()  # (line number, column) of every colour a rule owns
@@ -252,10 +256,10 @@ def theme_file(rel, text, night):
                 continue
             line = lines[i]
             for g, r in sorted(zip(groups, role), reverse=True):  # right to left
-                if r not in night:
+                if r not in colours:
                     errors.append(f"{rel}:{i + 1}: unknown role {r!r}")
                     continue
-                line = line[:m.start(g)] + night[r][1:] + line[m.end(g):]
+                line = line[:m.start(g)] + colours[r][1:] + line[m.end(g):]
                 claimed.add((i, m.start(g)))
             lines[i] = line
     if literal:
@@ -338,9 +342,10 @@ def main():
     pal = load_palette()
     errors = contrast_errors(pal)
     outputs = {}
+    colours = {**pal["night"], **{f"day.{k}": v for k, v in pal["day"].items()}}
     for rel in RULES:
         text = (ROOT / rel).read_text()
-        new, errs = theme_file(rel, text, pal["night"])
+        new, errs = theme_file(rel, text, colours)
         errors += errs
         outputs[rel] = (text, new)
     for rel in VT_PALETTE:
