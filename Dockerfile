@@ -4237,16 +4237,17 @@ RUN d=/adwaita-cursors/usr/share/icons && mkdir -p $d/Adwaita $d/default && \
 # (the isotope-fonts stage) by their real family names, because a Flatpak sees
 # the host's font files but not its fontconfig aliases. GTK3 has the dark
 # Adwaita built in only as a variant, so the theme named Adwaita-dark is a
-# one-line stylesheet that imports it. GTK's title bars put close, minimize
-# and maximize on the left (org.gnome.desktop.wm.preferences button-layout),
-# as the patched libcosmic does on COSMIC; the override is the same on every
-# variant.
+# one-line stylesheet that imports it. COSMIC adds its own override
+# (rootfs-cosmic/usr/share/glib-2.0/schemas/91_isotope-cosmic.gschema.override)
+# that puts GTK's window buttons on the left, as its patched libcosmic does.
 #
 # No dconf: without it GLib uses its in-memory backend, which still reads the
 # compiled schemas with this override, so every app and portal sees the dark
 # defaults. dconf would only add per-user changes saved across logins, for a
 # daemon, a GIO module and its cache in every image. The default stage
 # compiles the schemas (glib-compile-schemas); installs under DESTDIR skip it.
+# Adding dconf would also let cosmic-settings-daemon's `gsettings set ...
+# button-layout` (run at its start) override Isotope's COSMIC default.
 FROM toolchain AS gsettings-desktop-schemas
 COPY --from=glib2 /glib2 /
 COPY --from=pcre2 /pcre2 /
@@ -4264,8 +4265,6 @@ RUN d=/gsettings-desktop-schemas/usr/share && \
       '[org.gnome.desktop.interface]' "color-scheme='prefer-dark'" "gtk-theme='Adwaita-dark'" \
       "font-name='Inter Variable 10.5'" "icon-theme='Conflux'" "document-font-name='Inter Variable 10.5'" \
       "monospace-font-name='JetBrains Mono 10.5'" \
-      '# Window buttons on the left, as the patched libcosmic puts them (patches/cosmic/libcosmic).' \
-      '[org.gnome.desktop.wm.preferences]' "button-layout='close,minimize,maximize:'" \
       > $d/glib-2.0/schemas/90_isotope.gschema.override && \
     mkdir -p $d/themes/Adwaita-dark/gtk-3.0 && \
     printf '@import url("resource:///org/gtk/libgtk/theme/Adwaita/gtk-contained-dark.css");\n' \
@@ -4274,7 +4273,6 @@ RUN d=/gsettings-desktop-schemas/usr/share && \
     test "$(gsettings --schemadir /tmp/schemas get org.gnome.desktop.interface color-scheme 2>/dev/null)" = "'prefer-dark'" && \
     test "$(gsettings --schemadir /tmp/schemas get org.gnome.desktop.interface font-name 2>/dev/null)" = "'Inter Variable 10.5'" && \
     test "$(gsettings --schemadir /tmp/schemas get org.gnome.desktop.interface icon-theme 2>/dev/null)" = "'Conflux'" && \
-    test "$(gsettings --schemadir /tmp/schemas get org.gnome.desktop.wm.preferences button-layout 2>/dev/null)" = "'close,minimize,maximize:'" && \
     rm -rf /tmp/schemas
 
 # xdg-desktop-portal-gtk: the file chooser (and app chooser, print, settings)
@@ -4977,6 +4975,9 @@ COPY --from=fuzzel /fuzzel /
 COPY --from=wl-clipboard /wl-clipboard /
 COPY --from=cliphist /cliphist /
 COPY --from=cosmic-fonts /cosmic-fonts /
+# gsettings-desktop-schemas, for the GTK window-button override in
+# rootfs-cosmic/usr/share/glib-2.0/schemas (and Isotope's shared override).
+COPY --from=gsettings-desktop-schemas /gsettings-desktop-schemas /
 COPY --from=hicolor-icon-theme /hicolor-icon-theme /
 COPY --from=icon-themes /icon-themes /
 COPY --from=musl-locales /musl-locales /
@@ -5462,8 +5463,9 @@ RUN chmod 1777 /tmp; \
     ldconfig 2>/dev/null || true; \
     # Register the bundled fonts for the selected bar, terminal, and launcher.
     fc-cache -f 2>/dev/null || true; \
-    # Compile the GSettings schemas the variant ships (GTK's, and on Sway, i3
-    # and niri gsettings-desktop-schemas with Isotope's dark override): the
+    # Compile the GSettings schemas the variant ships (GTK's, and
+    # gsettings-desktop-schemas with Isotope's dark override; COSMIC adds its
+    # window-button override from rootfs-cosmic): the
     # stages install them under DESTDIR, where meson skips this, and GLib
     # aborts a GTK app that opens a file chooser with no compiled schemas. On
     # i3 the AT-SPI bus launcher, which GTK starts for snixembed, aborts too.
@@ -5728,6 +5730,9 @@ RUN systemctl enable isotope-backup.timer isotope-restore-finish.service && \
 FROM desktop-default AS sway-default
 FROM desktop-default AS i3-default
 FROM desktop-default AS cosmic-default
+# The compiled schemas carry COSMIC's own override: GTK's window buttons on the
+# left, as the patched libcosmic puts them (patches/cosmic/libcosmic).
+RUN test "$(gsettings get org.gnome.desktop.wm.preferences button-layout)" = "'close,minimize,maximize:'"
 FROM desktop-default AS niri-default
 FROM ${DESKTOP}-default AS default
 

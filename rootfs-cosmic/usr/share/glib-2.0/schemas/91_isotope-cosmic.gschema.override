@@ -1,0 +1,4 @@
+# Isotope on COSMIC: GTK's window buttons on the left, as the patched libcosmic
+# puts COSMIC's (patches/cosmic/libcosmic). Not on sway, i3 or niri.
+[org.gnome.desktop.wm.preferences]
+button-layout='close,minimize,maximize:'

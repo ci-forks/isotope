@@ -43,4 +43,4 @@ The `Cargo.lock` of each repo `cosmic-build.sh` builds (the Dockerfile
 revisions, so one patch serves them all. When an epoch bump makes a patch fail
 on one revision, the build stops at that component: list the revisions again
 (`gh api` the `Cargo.lock` of each repo at the new tag) and refresh the patch.
-Isotope's own applets (`applets/`) pin one of the revisions above.
+`applets/` (Isotope's own applets) must pin one of the revisions above.

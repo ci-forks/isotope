@@ -48,6 +48,12 @@ fi
 
 check "gsettings icon-theme is Conflux" \
     "test \"\$(gsettings get org.gnome.desktop.interface icon-theme)\" = \"'Conflux'\""
+# GTK's window buttons go on the left on COSMIC only (its own schema override),
+# as its patched libcosmic does; the tiling variants keep GTK's default.
+if [ "$DESKTOP" != cosmic ]; then
+    check "gsettings button-layout is not COSMIC's left layout" \
+        "v=\$(gsettings get org.gnome.desktop.wm.preferences button-layout) && test -n \"\$v\" && test \"\$v\" != \"'close,minimize,maximize:'\""
+fi
 check "fuzzel uses Conflux" "grep -qx 'icon-theme=Conflux' /etc/xdg/fuzzel/fuzzel.ini"
 if [ "$DESKTOP" = i3 ]; then
     check "dunst uses Conflux" "grep -qx '[[:space:]]*icon_theme = Conflux' /etc/dunst/dunstrc"
