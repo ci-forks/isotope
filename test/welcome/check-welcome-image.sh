@@ -100,7 +100,10 @@ case "$FLAVOR" in
 esac
 check "$FLAVOR: the session no longer starts isotope-first-run-apps --login" \
     "! $active $conf | grep -q 'isotope-first-run-apps'"
+# Every other line that names it must pass the exact token --login (bare,
+# or quoted as niri's spawn-at-startup does); the float rules are exempt.
+login_token='(^|[[:space:]"])--login("|[[:space:]]|$)'
 check "$FLAVOR: the session starts isotope-welcome only with --login" \
-    "! $active $conf | grep 'isotope-welcome' | grep -v -e 'login' -e 'for_window' -e 'match app-id' | grep -q ."
+    "! $active $conf | grep 'isotope-welcome' | grep -v -e 'for_window' -e 'match app-id' | grep -vE '$login_token' | grep -q ."
 
 exit "$fail"

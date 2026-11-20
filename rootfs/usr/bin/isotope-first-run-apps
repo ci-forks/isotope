@@ -1,4 +1,9 @@
 #!/bin/sh
-# The old name of the first-run app picker: it opens Isotope Welcome's Apps
-# page. --login is ignored; the sessions start `isotope-welcome --login`.
+# The old name of the first-run app picker. By hand (or from an old menu) it
+# opens Isotope Welcome's Apps page. With --login, the session-start hook of a
+# config from before Isotope Welcome, it is Isotope Welcome's own login hook,
+# which opens nothing once the user went through the flow or skipped it.
+if [ "${1:-}" = --login ]; then
+    exec isotope-welcome --login
+fi
 exec isotope welcome apps

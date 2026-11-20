@@ -10,9 +10,16 @@ import (
 
 // TestWelcomeExecsTheApp: `isotope welcome ARGS` replaces itself with
 // /usr/bin/isotope-welcome ARGS, so the app's exit code (2 for a bad page)
-// is the command's.
+// is the command's. With no page it asks for "all", the whole flow without
+// the login gate: a bare isotope-welcome is the stamp-gated login hook.
 func TestWelcomeExecsTheApp(t *testing.T) {
-	for _, args := range [][]string{nil, {"apps"}, {"--login"}, {"--nonsense"}} {
+	for _, tc := range []struct{ args, want []string }{
+		{nil, []string{"all"}},
+		{[]string{"apps"}, []string{"apps"}},
+		{[]string{"--login"}, []string{"--login"}},
+		{[]string{"--nonsense"}, []string{"--nonsense"}},
+	} {
+		args := tc.args
 		var gotPath string
 		var gotArgv []string
 		old := execWelcome
@@ -29,7 +36,7 @@ func TestWelcomeExecsTheApp(t *testing.T) {
 		if gotPath != "/usr/bin/isotope-welcome" {
 			t.Errorf("%v: exec %q", args, gotPath)
 		}
-		want := append([]string{"isotope-welcome"}, args...)
+		want := append([]string{"isotope-welcome"}, tc.want...)
 		if !reflect.DeepEqual(gotArgv, want) {
 			t.Errorf("%v: argv %q, want %q", args, gotArgv, want)
 		}

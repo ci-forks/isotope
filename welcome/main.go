@@ -29,7 +29,7 @@ func init() { app.ID = appID }
 type PageArg string
 
 const (
-	PageAll           PageArg = ""
+	PageAll           PageArg = "all"
 	PageLogin         PageArg = "--login"
 	PageApps          PageArg = "apps"
 	PageBackup        PageArg = "backup"
@@ -41,15 +41,18 @@ const (
 )
 
 // ParseArgs maps the command line to a PageArg; ok is false for anything else.
+// No argument is the login hook, as --login: configs from before Isotope
+// Welcome start a bare `isotope-welcome`, and it must stay stamp-gated. The
+// whole flow without the gate is "all" (`isotope welcome`).
 func ParseArgs(args []string) (PageArg, bool) {
 	if len(args) == 0 {
-		return PageAll, true
+		return PageLogin, true
 	}
 	if len(args) > 1 {
 		return "", false
 	}
 	switch p := PageArg(args[0]); p {
-	case PageLogin, PageApps, PageBackup, PageLanguage, PageNetwork,
+	case PageAll, PageLogin, PageApps, PageBackup, PageLanguage, PageNetwork,
 		PageAppearance, PageAccessibility, PageShortcuts:
 		return p, true
 	}
@@ -59,7 +62,7 @@ func ParseArgs(args []string) (PageArg, bool) {
 func main() {
 	page, ok := ParseArgs(os.Args[1:])
 	if !ok {
-		fmt.Fprintln(os.Stderr, "usage: isotope-welcome [--login | apps | language | network | appearance | accessibility | shortcuts]")
+		fmt.Fprintln(os.Stderr, "usage: isotope-welcome [--login | all | apps | language | network | appearance | accessibility | shortcuts]")
 		os.Exit(2)
 	}
 	if page == PageBackup {

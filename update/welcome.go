@@ -15,8 +15,13 @@ const welcomeBinary = "/usr/bin/isotope-welcome"
 var execWelcome = syscall.Exec
 
 // cmdWelcome is `isotope welcome [PAGE]`: it runs isotope-welcome with the
-// same arguments, so its pages and exit codes are the command's.
+// same arguments, so its pages and exit codes are the command's. With no
+// page it asks for "all", the whole flow: a bare isotope-welcome is the
+// login hook, which opens nothing once the user went through it.
 func cmdWelcome(args []string, stderr io.Writer) int {
+	if len(args) == 0 {
+		args = []string{"all"}
+	}
 	argv := append([]string{"isotope-welcome"}, args...)
 	if err := execWelcome(welcomeBinary, argv, os.Environ()); err != nil {
 		fmt.Fprintf(stderr, "isotope: cannot run %s: %v\n", welcomeBinary, err)

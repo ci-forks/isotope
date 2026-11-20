@@ -7,14 +7,19 @@ import (
 )
 
 func TestParseArgs(t *testing.T) {
-	for _, a := range []string{"", "--login", "apps", "backup", "language", "network", "appearance", "accessibility", "shortcuts"} {
-		args := []string{a}
-		if a == "" {
-			args = nil
-		}
-		if p, ok := ParseArgs(args); !ok || string(p) != a {
+	for _, a := range []string{"--login", "all", "apps", "backup", "language", "network", "appearance", "accessibility", "shortcuts"} {
+		if p, ok := ParseArgs([]string{a}); !ok || string(p) != a {
 			t.Errorf("%q: %q %v", a, p, ok)
 		}
+	}
+	// No argument is the login hook: a config from before Isotope Welcome
+	// still starts a bare `isotope-welcome`, which must stay stamp-gated.
+	if p, ok := ParseArgs(nil); !ok || p != PageLogin {
+		t.Errorf("no argument: %q %v, want --login", p, ok)
+	}
+	// "all" is the whole flow without the gate (`isotope welcome`).
+	if p, _ := ParseArgs([]string{"all"}); p != PageAll {
+		t.Errorf("all: %q, want PageAll", p)
 	}
 	for _, bad := range [][]string{{"--nonsense"}, {"apps", "x"}} {
 		if _, ok := ParseArgs(bad); ok {
