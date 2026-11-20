@@ -3,7 +3,7 @@
 
 theme/palette.toml names each colour by its role (base, text, accent, dim...).
 The configs the programs read (sway, i3, waybar, foot, fuzzel, mako, dunst,
-dmenu, niri, st, Noctalia, COSMIC's theme overlay, the update tray icon, the GRUB theme, the boot
+dmenu, niri, st, Noctalia, COSMIC's theme overlay, the COSMIC login screen's mark, the update tray icon, the GRUB theme, the boot
 splash, the console palette on the kernel command line) stay plain files in
 the tree; this script only
 rewrites the colour values in them, so they never drift from the palette and a
@@ -175,6 +175,15 @@ RULES = {
     "Dockerfile": (None, "hash", [
         (r"""^\s+-e 's\|"gray90", /\\\* default foreground colour \\\*/\|"#{hex}", """, "text"),
         (r"""^\s+-e 's\|"black", /\\\* default background colour \\\*/\|"#{hex}", """, "base"),
+    ]),
+    # The Isotope mark at the top left of the COSMIC login screen: brand, so
+    # the night brand roles, the shell in brand and the lifted side and core
+    # in brand_glow, as in docs/assets/isotope-mark.svg (and the tray icon's
+    # shapes in update/icons.go).
+    "rootfs-cosmic/usr/share/isotope/greeter-mark.svg": ("hash", "hash", [
+        (r'^<path fill="#{hex}" d="M423\.12 171\.21L', "brand"),
+        (r'^<path fill="#{hex}" d="M266\.24 33\.34L', "brand_glow"),
+        (r'^<circle fill="#{hex}" cx="245\.76" cy="273\.61"', "brand_glow"),
     ]),
     # The update tray icon: the mark in the panel's text colour, a badge per
     # daemon state, the badge glyph in on_accent. One set for dark panels

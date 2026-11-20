@@ -1573,6 +1573,19 @@ COPY tools/gen-wallpaper.py /build/tools/gen-wallpaper.py
 RUN python3 /build/tools/gen-wallpaper.py /isotope-wallpapers-day/usr/share/backgrounds/isotope \
       isotope-tiles-day-3840x2160
 
+# The COSMIC login screen's soft wallpapers: isotope-desktop-{night,day}-blur.png,
+# a Gaussian blur (sigma 40 px at 4K) of the two desktop wallpapers at a
+# quarter of their size, which the cosmic-greeter patch shows in place of the
+# sharp picture (patches/cosmic/cosmic-greeter). gen-wallpaper.py --blur, stdlib
+# only, about 3 s each. A development build makes its own in build-wallpaper.
+FROM toolchain AS isotope-wallpapers-blur
+COPY tools/gen-wallpaper.py /build/tools/gen-wallpaper.py
+COPY rootfs/usr/share/backgrounds/isotope/ /build/wallpapers/
+RUN for mode in night day; do \
+      python3 /build/tools/gen-wallpaper.py --blur /build/wallpapers/isotope-desktop-$mode.png \
+        /isotope-wallpapers-blur/usr/share/backgrounds/isotope/isotope-desktop-$mode-blur.png || exit 1; \
+    done
+
 # --- docker (static bundle) — rootful OCI containers ------------------------
 # Docker's daemon + CLI + containerd + runc ship as fully-static Go binaries in
 # the official static bundle (a musl-friendly, no-libc-dependency pattern).
@@ -5150,6 +5163,7 @@ COPY rootfs-cosmic/ /
 # it, so the two cannot drift. test/look/check-look.sh diffs them.
 RUN cp -a /usr/share/cosmic-layouts/isotope/com.system76.CosmicPanel* /usr/share/cosmic/
 COPY --from=cosmic-theme /cosmic-theme/ /
+COPY --from=isotope-wallpapers-blur /isotope-wallpapers-blur/ /
 
 FROM common-config AS niri-config
 COPY rootfs-niri/ /
@@ -5774,13 +5788,15 @@ FROM ${DESKTOP}-default AS default
 FROM python:3.12-slim-bookworm AS build-wallpaper
 ARG WALLPAPER_COMMIT=
 COPY tools/wallpapers /w
+COPY tools/gen-wallpaper.py /w/gen-wallpaper.py
 RUN mkdir -p /out/usr/share/backgrounds/isotope && \
     if [ -n "${WALLPAPER_COMMIT}" ]; then \
       pip install --no-cache-dir -r /w/requirements.txt && \
       d=/out/usr/share/backgrounds/isotope && short="$(printf %s "${WALLPAPER_COMMIT}" | cut -c1-12)" && \
       for mode in night day; do \
         python3 /w/build_wallpaper.py --seed "${WALLPAPER_COMMIT}" --mode "$mode" --out "$d" && \
-        ln -sf "isotope-build-${short}-${mode}-3840x2160.png" "$d/isotope-desktop-${mode}.png"; \
+        ln -sf "isotope-build-${short}-${mode}-3840x2160.png" "$d/isotope-desktop-${mode}.png" && \
+        python3 /w/gen-wallpaper.py --blur "$d/isotope-desktop-${mode}.png" "$d/isotope-desktop-${mode}-blur.png"; \
       done && ls -l "$d"; \
     fi
 

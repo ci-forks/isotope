@@ -180,6 +180,8 @@ jobs:
           done
           cmp "$RUNNER_TEMP/a/isotope-tiles-night-480x270.png" "$RUNNER_TEMP/b/isotope-tiles-night-480x270.png"
           cmp "$RUNNER_TEMP/a/isotope-plain-day-480x270.png" "$RUNNER_TEMP/b/isotope-plain-day-480x270.png"
+          # The login screen's soft wallpapers (--blur), made the same way.
+          python3 tools/test_gen_wallpaper.py
           make -C splash isotope-splash
           mkdir -p "$RUNNER_TEMP/grub"
           python3 tools/gen-grub-bg.py "$RUNNER_TEMP/grub"

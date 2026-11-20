@@ -127,4 +127,30 @@ if [ "$DESKTOP" = cosmic ]; then
         "own=\$(sed -n 's/^id //p' $L/layout.kdl); test -n \"\$own\"; for f in /usr/share/cosmic-layouts/*/layout.kdl; do [ \$f = $L/layout.kdl ] && continue; o=\$(sed -n 's/^id //p' \$f); [ \"\$own\" -lt \"\$o\" ] || exit 1; done; test \$(ls -d /usr/share/cosmic-layouts/*/ | wc -l) -gt 1"
 fi
 
+# --- COSMIC login screen: the centred, branded cosmic-greeter --------------
+if [ "$DESKTOP" = cosmic ]; then
+    W=/usr/share/backgrounds/isotope
+    # The soft wallpapers the patched greeter shows (tools/gen-wallpaper.py --blur).
+    for m in night day; do
+        check "the login screen's soft $m wallpaper is a PNG ($W/isotope-desktop-$m-blur.png)" \
+            "test \"\$(head -c 4 $W/isotope-desktop-$m-blur.png | tail -c 3)\" = PNG"
+    done
+    check "the login screen's Isotope mark is installed" "grep -q '<svg' /usr/share/isotope/greeter-mark.svg"
+    brand=$(cd "$(dirname "$0")/../.." && awk '$0=="[night]"{n=1;next} /^\[/{n=0} n && $1=="brand"{gsub(/"/,"",$3); print $3; exit}' theme/palette.toml)
+    if [ -z "$brand" ]; then echo "FAIL: no night brand in theme/palette.toml"; fail=1; else
+        check "the login screen's mark is the brand colour $brand" "grep -qi 'fill=\"$brand\"' /usr/share/isotope/greeter-mark.svg"
+    fi
+    # The greeter is built with patches/cosmic/cosmic-greeter: it names the
+    # mark and the soft wallpapers.
+    check "cosmic-greeter is the patched, centred one (names greeter-mark.svg and -blur.png)" \
+        "grep -qa greeter-mark.svg /usr/bin/cosmic-greeter && grep -qa -- -blur.png /usr/bin/cosmic-greeter"
+fi
+
+# --- The palette reaches every themed file (repository check) --------------
+if (cd "$(dirname "$0")/../.." && python3 tools/gen-theme.py --check >/dev/null); then
+    echo "PASS: tools/gen-theme.py --check (the greeter mark and every config match the palette)"
+else
+    echo "FAIL: tools/gen-theme.py --check"; fail=1
+fi
+
 exit $fail
