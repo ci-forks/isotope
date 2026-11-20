@@ -240,3 +240,9 @@ jobs:
         if: steps.prebuilt.outputs.skip != 'true'
         shell: bash
         run: test/welcome/check-welcome-image.sh "${DESKTOP}-desktop:dev" "$DESKTOP"
+
+      # The Conflux icon theme, and the programs set to use it.
+      - name: Check the look
+        if: steps.prebuilt.outputs.skip != 'true'
+        shell: bash
+        run: test/look/check-look.sh "${DESKTOP}-desktop:dev" "$DESKTOP"

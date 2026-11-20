@@ -3629,6 +3629,42 @@ RUN curl --retry-all-errors -fsSL --retry 5 https://icon-theme.freedesktop.org/r
     meson setup build --prefix=/usr && DESTDIR=/hicolor-icon-theme ninja -C build install && \
     test -f /hicolor-icon-theme/usr/share/icons/hicolor/index.theme
 
+# Conflux, the Isotope icon theme (GPL-3.0 icons, data only), on every variant.
+# Its index.theme inherits Adwaita and breeze, which the image does not have, so
+# it is rewritten to inherit Cosmic (pop-os/cosmic-icons, installed here the way
+# its justfile does, as the toolchain has no `just`) and hicolor. Conflux names
+# few Flathub and COSMIC app IDs: theme/conflux-links.txt links those IDs to the
+# Conflux icon that fits. Apps with none are in theme/conflux-missing.txt.
+# Conflux ships a few dangling links (ProtonVPN status icons); they are removed.
+# `find -L -type l` lists only broken links, and BusyBox find lacks -xtype.
+FROM toolchain AS icon-themes
+# Conflux has no release tags.
+ARG CONFLUX_COMMIT=85b0ef6dc59e4d459364337a92a14f604a2baa82
+# renovate: datasource=github-tags depName=pop-os/cosmic-session extractVersion=^epoch-(?<version>\d+(\.\d+)*)$
+ARG COSMIC_VERSION=1.11.0
+COPY theme/conflux-links.txt theme/conflux-missing.txt /build/
+RUN i=/icon-themes/usr/share/icons && c=$i/Conflux && \
+    mkdir -p $c $i/Cosmic /build/cosmic-icons /icon-themes/usr/share/isotope && \
+    curl --retry-all-errors -fsSL --retry 5 https://github.com/MoshiurRahmanAdib/Conflux-Icon-Theme/archive/${CONFLUX_COMMIT}.tar.gz | tar -xz --strip-components=1 -C $c && \
+    sed -i 's/^Inherits=.*/Inherits=Cosmic,hicolor/' $c/index.theme && \
+    curl --retry-all-errors -fsSL --retry 5 https://github.com/pop-os/cosmic-icons/archive/refs/tags/epoch-${COSMIC_VERSION}.tar.gz | tar -xz --strip-components=1 -C /build/cosmic-icons && \
+    (cd /build/cosmic-icons && \
+     for d in freedesktop extra; do (cd $d && find ./scalable -type f -exec install -Dm0644 '{}' "$i/Cosmic/{}" \;); done; \
+     install -Dm0644 index.theme $i/Cosmic/index.theme) && \
+    grep -v '^#' /build/conflux-links.txt | while read -r id name; do \
+      [ -n "$id" ] || continue; \
+      for d in apps/scalable apps@2x/scalable; do \
+        [ -e "$c/$d/$name.svg" ] && ln -sf "$name.svg" "$c/$d/$id.svg"; \
+      done; true; \
+    done && \
+    install -Dm0644 /build/conflux-missing.txt /icon-themes/usr/share/isotope/conflux-missing.txt && \
+    rm -rf /build/cosmic-icons && \
+    find -L $c -type l -exec rm -f {} + && \
+    grep -qx 'Inherits=Cosmic,hicolor' $c/index.theme && \
+    test -f $i/Cosmic/index.theme && \
+    test -e $c/apps/scalable/org.videolan.VLC.svg && \
+    test -z "$(find -L $c -type l)"
+
 # The UI fonts libcosmic defaults to (Open Sans, Noto Sans Mono), installed
 # system-wide so Flatpak and Xwayland apps match the shell. Pinned commits.
 FROM toolchain AS cosmic-fonts
@@ -4220,7 +4256,7 @@ RUN meson setup buildDir ${COMMON_MESON_FLAGS} -Dintrospection=false && \
 RUN d=/gsettings-desktop-schemas/usr/share && \
     printf '%s\n' '# Isotope defaults: dark apps and the Isotope fonts, including Flatpak apps through the portal.' \
       '[org.gnome.desktop.interface]' "color-scheme='prefer-dark'" "gtk-theme='Adwaita-dark'" \
-      "font-name='Inter Variable 10.5'" "document-font-name='Inter Variable 10.5'" \
+      "font-name='Inter Variable 10.5'" "icon-theme='Conflux'" "document-font-name='Inter Variable 10.5'" \
       "monospace-font-name='JetBrains Mono 10.5'" \
       > $d/glib-2.0/schemas/90_isotope.gschema.override && \
     mkdir -p $d/themes/Adwaita-dark/gtk-3.0 && \
@@ -4229,6 +4265,7 @@ RUN d=/gsettings-desktop-schemas/usr/share && \
     cp -a $d/glib-2.0/schemas /tmp/schemas && glib-compile-schemas --strict /tmp/schemas && \
     test "$(gsettings --schemadir /tmp/schemas get org.gnome.desktop.interface color-scheme 2>/dev/null)" = "'prefer-dark'" && \
     test "$(gsettings --schemadir /tmp/schemas get org.gnome.desktop.interface font-name 2>/dev/null)" = "'Inter Variable 10.5'" && \
+    test "$(gsettings --schemadir /tmp/schemas get org.gnome.desktop.interface icon-theme 2>/dev/null)" = "'Conflux'" && \
     rm -rf /tmp/schemas
 
 # xdg-desktop-portal-gtk: the file chooser (and app chooser, print, settings)
@@ -4752,6 +4789,7 @@ COPY --from=isotope-wallpapers /isotope-wallpapers /
 # Fallback icon theme and the Adwaita cursors (system default via
 # /usr/share/icons/default), as on niri.
 COPY --from=hicolor-icon-theme /hicolor-icon-theme /
+COPY --from=icon-themes /icon-themes /
 COPY --from=adwaita-cursors /adwaita-cursors /
 # Login manager (ly) + its X protocol libs
 COPY --from=libxau /libxau /
@@ -4836,6 +4874,7 @@ COPY --from=isotope-fonts /isotope-fonts /
 COPY --from=emoji /emoji /
 COPY --from=isotope-wallpapers /isotope-wallpapers /
 COPY --from=hicolor-icon-theme /hicolor-icon-theme /
+COPY --from=icon-themes /icon-themes /
 COPY --from=adwaita-cursors /adwaita-cursors /
 COPY --from=ly /ly /
 # Portals, so Flatpak apps get file dialogs and the dark colour scheme. The GTK
@@ -4930,6 +4969,7 @@ COPY --from=wl-clipboard /wl-clipboard /
 COPY --from=cliphist /cliphist /
 COPY --from=cosmic-fonts /cosmic-fonts /
 COPY --from=hicolor-icon-theme /hicolor-icon-theme /
+COPY --from=icon-themes /icon-themes /
 COPY --from=musl-locales /musl-locales /
 COPY --from=nerdfont /nerdfont /
 COPY --from=isotope-fonts /isotope-fonts /
@@ -5031,6 +5071,7 @@ COPY --from=emoji /emoji /
 COPY --from=isotope-wallpapers /isotope-wallpapers /
 COPY --from=isotope-wallpapers-day /isotope-wallpapers-day /
 COPY --from=hicolor-icon-theme /hicolor-icon-theme /
+COPY --from=icon-themes /icon-themes /
 COPY --from=adwaita-cursors /adwaita-cursors /
 COPY --from=ly /ly /
 
