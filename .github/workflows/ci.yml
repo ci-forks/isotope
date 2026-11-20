@@ -231,3 +231,5 @@ jobs:
         run: test/clipboard/dispatch_test.sh
       - name: Extensions menu entry and wiring
         run: test/extensions/check-extensions-menu.sh
+      - name: Extension catalog from the registry tags
+        run: test/extensions/check-extensions-catalog.sh

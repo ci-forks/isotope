@@ -144,7 +144,7 @@ func runExtJob(t *testing.T, d *Daemon, start func() error) Status {
 func TestCatalogsConf(t *testing.T) {
 	conf := filepath.Join(t.TempDir(), "extensions.conf")
 	t.Setenv("ISOTOPE_UPDATE_EXT_CONF", conf)
-	if got := Catalogs(); len(got) != 1 || got[0] != defaultCatalog {
+	if got := strings.Join(Catalogs(), " "); got != isotopeCatalog+" "+hadronLayersCatalog {
 		t.Fatalf("no file: %v", got)
 	}
 	os.WriteFile(conf, []byte("# ours first\ncatalog = https://a.example/x.json\nother=1\ncatalog=ftp://b.example/\ncatalog=https://c.example/a,b\ncatalog=http://d.example/y.json\n"), 0o644)
@@ -152,8 +152,17 @@ func TestCatalogsConf(t *testing.T) {
 		t.Fatalf("catalogs %q", got)
 	}
 	os.WriteFile(conf, []byte("catalog=nonsense\n"), 0o644)
-	if got := Catalogs(); len(got) != 1 || got[0] != defaultCatalog {
+	if got := strings.Join(Catalogs(), " "); got != isotopeCatalog+" "+hadronLayersCatalog {
 		t.Fatalf("no valid line: %v", got)
+	}
+}
+
+// The extensions.conf the image ships names the same catalogs, in the same
+// order, as the list used without it.
+func TestShippedCatalogsConfIsTheDefault(t *testing.T) {
+	t.Setenv("ISOTOPE_UPDATE_EXT_CONF", filepath.Join("..", "rootfs", "etc", "isotope", "extensions.conf"))
+	if got, want := strings.Join(Catalogs(), " "), strings.Join(defaultCatalogs(), " "); got != want {
+		t.Fatalf("rootfs/etc/isotope/extensions.conf lists %q, the default is %q", got, want)
 	}
 }
 
@@ -317,7 +326,7 @@ func TestExtInstallIdenticalFilesAreFine(t *testing.T) {
 	if st.ExtResult != extResultOK || st.State != StateIdle {
 		t.Fatalf("status %+v", st)
 	}
-	want := []string{`install gpg "2.4" ` + defaultCatalog, "dissect gpg.sysext.raw", "enable gpg.sysext.raw"}
+	want := []string{`install gpg "2.4" ` + strings.Join(defaultCatalogs(), ","), "dissect gpg.sysext.raw", "enable gpg.sysext.raw"}
 	if got := fe.log(); strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Fatalf("calls %q", got)
 	}

@@ -1,0 +1,159 @@
+name: Extensions
+
+# Builds every system extension under extensions/ (see extensions/README.md)
+# on the Hadron release the image is pinned to, runs its test stage, and turns
+# it into a sysext image with AuroraBoot. On main it pushes each one to
+# $IMAGE_REPO:sysext-<name>-<version>-amd64 and publishes the catalog,
+# extensions.json, to GitHub Pages, where /etc/isotope/extensions.conf names
+# it first. A pull request builds and tests, and pushes nothing.
+
+on:
+  pull_request:
+    paths:
+      - extensions/**
+      - scripts/extensions-catalog.sh
+      - .github/workflows/extensions.yml
+  push:
+    branches: [main]
+    paths:
+      - extensions/**
+      - scripts/extensions-catalog.sh
+      - .github/workflows/extensions.yml
+      # The Hadron pin (scripts/bump-hadron.sh): rebuild on the new release.
+      - Makefile
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: extensions-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # The image's own repository. It is public, so kairos-agent pulls the
+  # extensions with no login, and no new package has to be made public.
+  IMAGE_REPO: ghcr.io/${{ github.repository }}
+  AURORA_IMAGE: quay.io/kairos/auroraboot:v0.30.0
+
+jobs:
+  discover:
+    runs-on: ubuntu-24.04
+    outputs:
+      names: ${{ steps.list.outputs.names }}
+      hadron: ${{ steps.list.outputs.hadron }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: List the extensions and the Hadron release
+        id: list
+        run: |
+          names=$(find extensions -mindepth 2 -maxdepth 2 -name Dockerfile -printf '%h\n' |
+            xargs -rn1 basename | sort | jq -R . | jq -sc .)
+          echo "names=$names" >> "$GITHUB_OUTPUT"
+          echo "hadron=$(scripts/bump-hadron.sh --current)" >> "$GITHUB_OUTPUT"
+          echo "extensions: $names"
+
+  build:
+    needs: discover
+    if: needs.discover.outputs.names != '[]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        name: ${{ fromJson(needs.discover.outputs.names) }}
+    env:
+      NAME: ${{ matrix.name }}
+      HADRON_VERSION: ${{ needs.discover.outputs.hadron }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # The extension's version is ARG <NAME>_VERSION= in its Dockerfile
+      # (htop: HTOP_VERSION), the one Renovate moves.
+      - name: Version
+        id: version
+        run: |
+          arg="$(tr 'a-z-' 'A-Z_' <<<"$NAME")_VERSION"
+          version=$(sed -n "s/^ARG ${arg}=//p" "extensions/$NAME/Dockerfile" | head -n 1)
+          if [[ ! "$version" =~ ^[0-9][A-Za-z0-9._+]*$ ]]; then
+            echo "extensions/$NAME/Dockerfile needs ARG ${arg}=<version starting with a digit>, got '$version'" >&2
+            exit 1
+          fi
+          echo "value=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Test stage
+        run: docker build --build-arg HADRON_VERSION --target test "extensions/$NAME"
+
+      - name: Build
+        run: docker build --build-arg HADRON_VERSION --target default -t "isotope-extension-$NAME:build" "extensions/$NAME"
+
+      - name: Make the sysext image
+        run: |
+          mkdir -p "$RUNNER_TEMP/sysext"
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$RUNNER_TEMP/sysext:/output" \
+            "$AURORA_IMAGE" sysext --arch amd64 --output /output \
+            "$NAME" "isotope-extension-$NAME:build"
+          test -s "$RUNNER_TEMP/sysext/$NAME.sysext.raw"
+          ls -l "$RUNNER_TEMP/sysext"
+
+      - name: Set up ORAS
+        if: github.event_name != 'pull_request'
+        uses: oras-project/setup-oras@v2
+        with:
+          version: 1.3.0
+
+      - name: Push
+        if: github.event_name != 'pull_request'
+        working-directory: ${{ runner.temp }}/sysext
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          echo "$GH_TOKEN" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          oras push --artifact-type application/vnd.kairos.sysext.raw \
+            "${IMAGE_REPO}:sysext-${NAME}-${VERSION}-amd64" \
+            "${NAME}.sysext.raw:application/vnd.kairos.sysext.raw"
+
+  # The catalog lists what the registry holds, so it is rebuilt even when one
+  # extension failed: the others are still published.
+  catalog:
+    needs: build
+    if: ${{ !cancelled() && github.event_name != 'pull_request' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}extensions.json
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Write extensions.json
+        run: |
+          mkdir -p _site
+          scripts/extensions-catalog.sh _site/extensions.json
+          cat _site/extensions.json
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: _site
+
+      - id: deploy
+        uses: actions/deploy-pages@v5

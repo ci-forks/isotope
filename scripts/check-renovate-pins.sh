@@ -30,7 +30,7 @@ missing=$(awk -v unmanaged="$unmanaged" '
     if (!(name in skip) && prev !~ /^# renovate: /) print FILENAME ":" FNR ": " $2
   }
   { prev = $0 }
-' Dockerfile Dockerfile.agent)
+' Dockerfile Dockerfile.agent extensions/*/Dockerfile)
 
 if [ -n "$missing" ]; then
   echo "Version pins without a '# renovate:' comment (see renovate.json):" >&2

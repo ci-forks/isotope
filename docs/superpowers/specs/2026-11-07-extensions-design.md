@@ -143,6 +143,17 @@ hadron-ext remove NAME
 
 ### Our own catalog (phase 2)
 
+Built differently from this plan (2026-11-20): the extensions are not
+stages of the image's Dockerfile and are not built by release.yml. Each one
+is a directory under `extensions/`, built by `.github/workflows/extensions.yml`
+on the image's Hadron pin whenever it changes on main, so an extension
+ships without a release. The images go to `ghcr.io/kairos-community/isotope`
+as `sysext-<name>-<version>-<arch>` tags, and the catalog is
+`https://kairos-community.github.io/isotope/extensions.json`. An extension
+must not carry a file the base has; libraries it needs are linked
+statically, so sharing the release's libraries is not needed. See
+`extensions/README.md`. The original plan follows.
+
 `release.yml` builds desktop extensions from stages of our own Dockerfile,
 against the same toolchain as the release, with `auroraboot sysext`. Then it
 pushes them to `ghcr.io/kairos-community/hadron-desktop/sysext/<name>` and
