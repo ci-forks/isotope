@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- Base: `ci-forks/refactor/shared-gui-kit` (PR #121) until it merges; then rebase on `origin/main`.
+- Base: `origin/main` (guikit landed in #121; UPower in #120).
 - Same flow on all four desktop variants, landing in one release: no PR in this plan may be released alone with `cosmic-initial-setup` removed but the COSMIC pages missing, or the reverse. Tasks merge as one PR (or back-to-back PRs with no release between).
 - Page order: Welcome → Language → Network → Appearance → [Layout → Workflow → Launcher, COSMIC only] → Accessibility → Apps → Shortcuts → Ready. In this plan the Welcome page has only "Set up as new"; Restore is the Restore plan's.
 - Window: decorated, about 1100×720 dp, not fullscreen; app ID and X11 class `isotope-welcome`; floats on sway, i3 and niri by window rule. Esc = Go back, Ctrl+Plus/Minus/0 = scale (`guikit.WindowKeys`).
