@@ -1,5 +1,6 @@
 #!/bin/sh
-# Keep every human user's persistent Flathub remote signed and canonical.
+# Keep every human user's persistent Flathub remote signed and canonical, and
+# create the Flatpak export folders before any session starts.
 set -u
 
 FLATHUB_NAME=flathub
@@ -209,13 +210,51 @@ configure_remote() {
     fi
 }
 
+# COSMIC's icon lookup (the freedesktop-icons crate) lists the icon folders of
+# XDG_DATA_DIRS once per process and drops the ones that do not exist. The
+# first `flatpak install` creates exports/share/icons only after the session
+# has started, so the apps it installs have no icons until the next login.
+# Create the export folders at boot, before the login screen.
+create_system_exports() {
+    install -d -m 0755 /var/lib/flatpak/exports/share/icons/hicolor \
+        /var/lib/flatpak/exports/share/applications
+}
+
+# Run as the user, so that a symlink in the home cannot redirect a root write
+# and every folder that mkdir creates belongs to the user and their primary
+# group, with mode 0755 (whatever the user's umask). Folders that already exist
+# are not changed.
+create_user_exports() {
+    # shellcheck disable=SC2016 # expanded by the user's shell
+    su - "$1" -c '
+        umask 022
+        flatpak_dir=${FLATPAK_USER_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/flatpak}
+        # Flatpak keeps its own folder private (0700); do the same.
+        if [ ! -d "$flatpak_dir" ]; then
+            /usr/bin/mkdir -p -m 0700 "$flatpak_dir" || exit 1
+        fi
+        /usr/bin/mkdir -p "$flatpak_dir/exports/share/icons/hicolor" \
+            "$flatpak_dir/exports/share/applications"
+    '
+}
+
 status=0
+if ! create_system_exports; then
+    echo "isotope-user-setup: unable to create the system Flatpak export folders" >&2
+    status=1
+fi
 while IFS=: read -r user password uid gid gecos home shell; do
     case "$uid" in
         ''|*[!0-9]*) continue ;;
     esac
-    if [ "$uid" -ge 1000 ] && [ "$uid" -lt 60000 ] && [ -d "$home" ] &&
-       ! configure_remote "$user"; then
+    if [ "$uid" -lt 1000 ] || [ "$uid" -ge 60000 ] || [ ! -d "$home" ]; then
+        continue
+    fi
+    if ! create_user_exports "$user"; then
+        echo "isotope-user-setup: unable to create Flatpak export folders for $user" >&2
+        status=1
+    fi
+    if ! configure_remote "$user"; then
         echo "isotope-user-setup: signed Flathub setup failed for $user" >&2
         status=1
     fi
