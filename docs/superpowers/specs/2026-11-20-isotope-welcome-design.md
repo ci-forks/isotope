@@ -287,8 +287,10 @@ Isotope's widgets:
   `pkill -x cosmic-panel`**. `cosmic-session` starts it again, so the
   change shows at once. A test asserts the panel process is new after the
   change.
-- **Workflow** and **Launcher**: the same keys `cosmic-initial-setup` writes
-  (its `workflow.rs` and `launcher.rs`, COSMIC epoch-1.11.0), applied live.
+- **Workflow** and **Launcher**: information pages, as in
+  `cosmic-initial-setup` (its `workflow.rs` and `launcher.rs`, COSMIC
+  epoch-1.11.0, write no settings). They explain workspaces and the launcher
+  and point to COSMIC Settings; nothing is set.
 
 ### 8. Accessibility
 
