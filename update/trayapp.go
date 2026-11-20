@@ -14,7 +14,7 @@ import (
 
 // trayView is everything the tray shows at one moment.
 type trayView struct {
-	Icon    string // a key of iconColors
+	Icon    string // one of iconKinds
 	Tooltip string
 	Menu    []MenuItem
 }

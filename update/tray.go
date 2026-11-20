@@ -4,8 +4,10 @@ import (
 	"context"
 	"io"
 	"reflect"
+	"sync"
 
 	"fyne.io/systray"
+	"github.com/godbus/dbus/v5"
 )
 
 // cmdTray runs the session's update icon: a StatusNotifierItem that follows
@@ -39,7 +41,11 @@ func runTray(noIcon bool, stderr io.Writer) int {
 	// still shows it.
 	systray.Run(func() {
 		systray.SetTitle("Isotope updates")
-		app.ui = newSystrayUI(app.clicks)
+		ui := newSystrayUI(app.clicks)
+		app.ui = ui
+		if conn, err := dbus.ConnectSessionBus(); err == nil {
+			go watchColorScheme(conn, ui.SetDark)
+		}
 		go app.run(context.Background())
 	}, nil)
 	return exitOK
@@ -49,24 +55,45 @@ func runTray(noIcon bool, stderr io.Writer) int {
 // rules live in BuildMenu; this only draws what it is given.
 type systrayUI struct {
 	clicks chan<- string
-	icons  map[string][]byte
-	last   trayView
-	shown  bool
+	icons  map[bool]map[string][]byte // dark panel -> icon -> PNG
+
+	mu    sync.Mutex // Show and SetDark run on different goroutines
+	dark  bool
+	last  trayView
+	shown bool
 }
 
 func newSystrayUI(clicks chan<- string) *systrayUI {
-	u := &systrayUI{clicks: clicks, icons: map[string][]byte{}}
-	// One pixmap per icon: SNI hosts scale it to the panel, and 44 px stays
-	// sharp on a HiDPI panel.
-	for kind := range iconColors {
-		u.icons[kind] = iconPNG(kind, 44)
+	u := &systrayUI{clicks: clicks, icons: map[bool]map[string][]byte{}, dark: true}
+	// One pixmap per icon and panel: SNI hosts scale it to the panel, and
+	// 44 px stays sharp on a HiDPI panel.
+	for _, dark := range []bool{true, false} {
+		u.icons[dark] = map[string][]byte{}
+		for _, kind := range iconKinds {
+			u.icons[dark][kind] = iconPNG(kind, dark, 44)
+		}
 	}
 	return u
 }
 
+// SetDark switches the icons to the ones for a dark (or light) panel.
+func (u *systrayUI) SetDark(dark bool) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	if dark == u.dark {
+		return
+	}
+	u.dark = dark
+	if u.shown {
+		systray.SetIcon(u.icons[dark][u.last.Icon])
+	}
+}
+
 func (u *systrayUI) Show(v trayView) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
 	if !u.shown || v.Icon != u.last.Icon {
-		systray.SetIcon(u.icons[v.Icon])
+		systray.SetIcon(u.icons[u.dark][v.Icon])
 	}
 	if !u.shown || v.Tooltip != u.last.Tooltip {
 		systray.SetTooltip(v.Tooltip)

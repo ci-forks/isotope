@@ -7,7 +7,7 @@
 # The colours follow the Kairos design system (github.com/kairos-io/design)
 # for roles and contrast, with Isotope's own neutrals: a warm graphite.
 # Brand and theme are separate: the brand roles (Autunite yellow) colour what
-# names Isotope (the mark, splash, GRUB, the idle tray icon); the theme roles
+# names Isotope (the mark, splash, GRUB); the theme roles
 # ("Carbon", a warm ivory accent) colour what you use for hours. Kairos orange
 # stays as the family tie. Night is what the
 # splash, GRUB, ly, sway and i3 use. Day is for Noctalia's light mode (and
@@ -36,7 +36,7 @@ orange     = "#ff7442"  # Kairos orange, the family tie
 on_accent  = "#141411"
 blue       = "#79b8ed"  # terminal blue
 cyan       = "#89dae3"  # terminal cyan
-brand      = "#e4de48"  # BRAND: the mark, splash, GRUB, the idle tray icon
+brand      = "#e4de48"  # BRAND: the mark, splash, GRUB
 brand_glow = "#f9f1af"  # BRAND: pushed side and core of the mark
 brand_deep = "#9f9615"  # BRAND: deep tone (shading; the mark on light grounds)
 

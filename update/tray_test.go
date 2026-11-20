@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"image/color"
 	"image/png"
 	"os"
 	"path/filepath"
@@ -12,6 +13,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/godbus/dbus/v5"
 )
 
 // trayFake is a daemonClient safe to use from the tray's goroutine and the
@@ -491,35 +494,72 @@ func TestTerminalArgv(t *testing.T) {
 }
 
 func TestIcons(t *testing.T) {
-	want := map[string][3]uint8{
-		"idle": {0xe4, 0xde, 0x48}, "update": {0x37, 0xbe, 0x95}, "busy": {0xea, 0x8a, 0x18},
-		"reboot": {0xd8, 0x96, 0xdb}, "error": {0xff, 0x71, 0x72},
-	}
-	for kind, rgb := range want {
-		for _, size := range []int{22, 44} {
-			img, err := png.Decode(bytes.NewReader(iconPNG(kind, size)))
-			if err != nil {
-				t.Fatalf("%s/%d: %v", kind, size, err)
-			}
-			if b := img.Bounds(); b.Dx() != size || b.Dy() != size {
-				t.Fatalf("%s/%d: bounds %v", kind, size, b)
-			}
-			// Inside the disc, above every glyph.
-			r, g, b, a := img.At(size/2, size/8+1).RGBA()
-			if a>>8 < 0xf0 || uint8(r>>8) != rgb[0] || uint8(g>>8) != rgb[1] || uint8(b>>8) != rgb[2] {
-				t.Errorf("%s/%d: disc colour %02x%02x%02x/%02x", kind, size, r>>8, g>>8, b>>8, a>>8)
-			}
-			if _, _, _, a := img.At(0, 0).RGBA(); a != 0 {
-				t.Errorf("%s/%d: corner not transparent", kind, size)
-			}
-			// The middle of the three busy dots is glyph, in the dark
-			// on_accent colour that stays readable on the light discs.
-			if kind == "busy" {
-				r, g, b, _ := img.At(size/2, size/2).RGBA()
-				if uint8(r>>8) != 0x14 || uint8(g>>8) != 0x14 || uint8(b>>8) != 0x11 {
-					t.Errorf("busy/%d: glyph colour %02x%02x%02x", size, r>>8, g>>8, b>>8)
+	// Points of the 512 box of the mark: on the ring's right side, where the
+	// cut around the badge also passes; the badge's centre; and the badge
+	// below its glyph.
+	type pt struct{ x, y float64 }
+	ring, centre, badge := pt{407, 286}, pt{404, 404}, pt{404, 492}
+	for _, dark := range []bool{true, false} {
+		th := iconThemes[dark]
+		for _, kind := range iconKinds {
+			for _, size := range []int{22, 44, 88} {
+				img, err := png.Decode(bytes.NewReader(iconPNG(kind, dark, size)))
+				if err != nil {
+					t.Fatalf("%s/%v/%d: %v", kind, dark, size, err)
+				}
+				if b := img.Bounds(); b.Dx() != size || b.Dy() != size {
+					t.Fatalf("%s/%v/%d: bounds %v", kind, dark, size, b)
+				}
+				if _, _, _, a := img.At(0, 0).RGBA(); a != 0 {
+					t.Errorf("%s/%v/%d: corner not transparent", kind, dark, size)
+				}
+				if size < 44 {
+					continue // too coarse for whole pixels inside each part
+				}
+				at := func(p pt) color.NRGBA {
+					return color.NRGBAModel.Convert(img.At(int(p.x*float64(size)/512), int(p.y*float64(size)/512))).(color.NRGBA)
+				}
+				bg, badged := th.badge[kind]
+				if !badged {
+					if kind != "idle" {
+						t.Fatalf("%s has no badge colour", kind)
+					}
+					if c := at(ring); c != th.mark {
+						t.Errorf("idle/%v/%d: ring %v, want the mark %v", dark, size, c, th.mark)
+					}
+					if c := at(centre); c.A != 0 {
+						t.Errorf("idle/%v/%d: a badge is drawn: %v", dark, size, c)
+					}
+					continue
+				}
+				if c := at(ring); c.A != 0 {
+					t.Errorf("%s/%v/%d: no gap around the badge: %v", kind, dark, size, c)
+				}
+				if c := at(badge); c != bg {
+					t.Errorf("%s/%v/%d: badge %v, want %v", kind, dark, size, c, bg)
+				}
+				// Every glyph but the restart arrow crosses the middle.
+				if c := at(centre); kind != "reboot" && c != th.glyph {
+					t.Errorf("%s/%v/%d: glyph %v, want %v", kind, dark, size, c, th.glyph)
 				}
 			}
+		}
+	}
+}
+
+func TestSchemeIsDark(t *testing.T) {
+	for _, c := range []struct {
+		v    dbus.Variant
+		dark bool
+	}{
+		{dbus.MakeVariant(uint32(1)), true},
+		{dbus.MakeVariant(uint32(0)), true},
+		{dbus.MakeVariant(uint32(2)), false},
+		{dbus.MakeVariant(dbus.MakeVariant(uint32(2))), false}, // Read wraps it twice
+		{dbus.MakeVariant("light"), true},
+	} {
+		if got := schemeIsDark(c.v); got != c.dark {
+			t.Errorf("%v: dark %v, want %v", c.v, got, c.dark)
 		}
 	}
 }
