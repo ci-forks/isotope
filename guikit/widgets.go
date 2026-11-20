@@ -3,6 +3,7 @@ package guikit
 import (
 	"image"
 	"image/color"
+	"strings"
 
 	"gioui.org/gesture"
 	"gioui.org/io/event"
@@ -495,4 +496,44 @@ func MoveSelection(shown []int, sel int, down bool, l *widget.List) int {
 		l.Position.Offset = 0
 	}
 	return shown[pos]
+}
+
+// KeyCaps draws a key combination as key caps joined by "+": keys are the
+// keys in order ("Super", "Shift", "E"). A key may list alternatives joined
+// by " / " ("D / Space"); they are drawn as caps joined by "/".
+func (th *Theme) KeyCaps(gtx layout.Context, keys []string) layout.Dimensions {
+	var kids []layout.FlexChild
+	sep := func(s string) layout.FlexChild {
+		return layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return layout.Inset{Left: 6, Right: 6}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				return th.Label(gtx, StSmall, ColDim, s)
+			})
+		})
+	}
+	for i, k := range keys {
+		if i > 0 {
+			kids = append(kids, sep("+"))
+		}
+		for j, alt := range strings.Split(k, " / ") {
+			if j > 0 {
+				kids = append(kids, sep("/"))
+			}
+			kids = append(kids, layout.Rigid(func(gtx layout.Context) layout.Dimensions { return th.keyCap(gtx, alt) }))
+		}
+	}
+	return layout.Flex{Alignment: layout.Middle}.Layout(gtx, kids...)
+}
+
+// keyCap is one key: its name in the mono face on the key box colour.
+func (th *Theme) keyCap(gtx layout.Context, name string) layout.Dimensions {
+	b := Box{Radius: 6, Fill: ColKeyBox, Border: Over(ColKeyBox, ColText, 0.16), BorderWidth: 1}
+	gtx.Constraints.Min = image.Point{}
+	return b.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		gtx.Constraints.Min.X = Dp(gtx, 30)
+		return layout.Inset{Top: 5, Bottom: 5, Left: 10, Right: 10}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				return th.Label(gtx, StMono, ColText, name)
+			})
+		})
+	})
 }

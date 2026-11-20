@@ -5,7 +5,9 @@ import (
 	"math"
 	"time"
 
+	"gioui.org/io/event"
 	"gioui.org/io/key"
+	"gioui.org/io/pointer"
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
@@ -370,4 +372,56 @@ func WindowKeys(gtx layout.Context, scale *float32, back func()) {
 			*scale = 1
 		}
 	}
+}
+
+// Confirm is a question over the window: the window dimmed, and in the
+// middle a card with title, the paragraph body and the buttons at its
+// bottom right. It draws over all of gtx and takes the pointer, so the page
+// under it cannot be clicked; the app gives the keyboard focus to one of
+// the buttons.
+func (th *Theme) Confirm(gtx layout.Context, title, body string, actions []Action) layout.Dimensions {
+	size := gtx.Constraints.Max
+	r := image.Rectangle{Max: size}
+	FillRect(gtx, r, Alpha(ColKeyBox, 0.72))
+	area := clip.Rect(r).Push(gtx.Ops)
+	event.Op(gtx.Ops, &th.scrim)
+	for {
+		if _, ok := gtx.Event(pointer.Filter{Target: &th.scrim, Kinds: pointer.Press | pointer.Release | pointer.Scroll, ScrollY: pointer.ScrollRange{Min: -1 << 20, Max: 1 << 20}}); !ok {
+			break
+		}
+	}
+	area.Pop()
+	gtx.Constraints = layout.Exact(size)
+	return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		w := min(Dp(gtx, 460), size.X-Dp(gtx, 48))
+		gtx.Constraints = layout.Constraints{Min: image.Pt(w, 0), Max: image.Pt(w, size.Y)}
+		b := Box{Radius: 14, Fill: ColWindow, Border: Over(ColWindow, ColText, 0.12), BorderWidth: 1}
+		return b.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			return layout.UniformInset(24).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				gtx.Constraints.Min.X = gtx.Constraints.Max.X
+				kids := []layout.FlexChild{
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions { return th.Label(gtx, StTitle, ColText, title) }),
+					VGap(10),
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions { return th.LabelLines(gtx, StBody, ColText2, 1.5, body) }),
+					VGap(22),
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						gtx.Constraints.Min.X = gtx.Constraints.Max.X
+						bs := []layout.FlexChild{layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+							return layout.Dimensions{Size: image.Pt(gtx.Constraints.Min.X, 0)}
+						})}
+						for i, a := range actions {
+							if i > 0 {
+								bs = append(bs, layout.Rigid(layout.Spacer{Width: 10}.Layout))
+							}
+							bs = append(bs, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+								return th.Button(gtx, a.Click, a.Kind, a.Label, !a.Disabled)
+							}))
+						}
+						return layout.Flex{Alignment: layout.Middle}.Layout(gtx, bs...)
+					}),
+				}
+				return layout.Flex{Axis: layout.Vertical}.Layout(gtx, kids...)
+			})
+		})
+	})
 }
