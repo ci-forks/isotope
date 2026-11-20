@@ -46,7 +46,7 @@ func TestSecuredFlags(t *testing.T) {
 }
 
 func TestWifiSettingsSecured(t *testing.T) {
-	s := wifiSettings("Home", "hunter22", false)
+	s := wifiSettings("Home", "hunter22", false, "wpa-psk")
 	w := s["802-11-wireless"]
 	if got, _ := w["ssid"].Value().([]byte); !bytes.Equal(got, []byte("Home")) {
 		t.Errorf("ssid %v", w["ssid"])
@@ -67,7 +67,7 @@ func TestWifiSettingsSecured(t *testing.T) {
 }
 
 func TestWifiSettingsOpenAndHidden(t *testing.T) {
-	s := wifiSettings("Cafe", "", true)
+	s := wifiSettings("Cafe", "", true, "wpa-psk")
 	if _, ok := s["802-11-wireless-security"]; ok {
 		t.Error("security section for an open network")
 	}
@@ -82,5 +82,28 @@ func TestConnectFailureWording(t *testing.T) {
 	}
 	if err := connectFailure("Cafe", ""); err == nil || err.Error() != "Could not connect to Cafe" {
 		t.Errorf("open network: %v", err)
+	}
+}
+
+// M9: a WPA3-only (SAE) network needs key-mgmt "sae"; WPA2 and the mixed
+// WPA2/WPA3 mode stay "wpa-psk".
+func TestKeyMgmt(t *testing.T) {
+	for _, c := range []struct {
+		rsn  uint32
+		want string
+	}{
+		{0, "wpa-psk"},
+		{0x100, "wpa-psk"}, // PSK
+		{0x500, "wpa-psk"}, // PSK and SAE
+		{0x400, "sae"},     // SAE only
+		{0x488, "sae"},     // SAE with its ciphers
+	} {
+		if got := keyMgmt(c.rsn); got != c.want {
+			t.Errorf("rsn %#x: %s, want %s", c.rsn, got, c.want)
+		}
+	}
+	s := wifiSettings("Home", "hunter22", false, "sae")
+	if s["802-11-wireless-security"]["key-mgmt"].Value() != "sae" {
+		t.Errorf("security %v", s["802-11-wireless-security"])
 	}
 }

@@ -71,9 +71,25 @@ func apSecured(flags, wpa, rsn uint32) bool { return flags&1 != 0 || wpa != 0 ||
 
 type settings = map[string]map[string]dbus.Variant
 
+const (
+	nmKeyMgmtPSK = 0x100 // NM_802_11_AP_SEC_KEY_MGMT_PSK
+	nmKeyMgmtSAE = 0x400 // NM_802_11_AP_SEC_KEY_MGMT_SAE
+)
+
+// keyMgmt is the key-mgmt for a password network whose access point
+// advertises the RSN flags rsn: "sae" for WPA3-only, else "wpa-psk" (WPA2,
+// the mixed WPA2/WPA3 mode, and a network not in the list).
+func keyMgmt(rsn uint32) string {
+	if rsn&nmKeyMgmtSAE != 0 && rsn&nmKeyMgmtPSK == 0 {
+		return "sae"
+	}
+	return "wpa-psk"
+}
+
 // wifiSettings is the connection AddAndActivateConnection takes. A
-// password makes it WPA-PSK; none makes it an open network.
-func wifiSettings(ssid, password string, hidden bool) settings {
+// password makes it a WPA network with key-mgmt km ("wpa-psk" or "sae");
+// none makes it an open network.
+func wifiSettings(ssid, password string, hidden bool, km string) settings {
 	wireless := map[string]dbus.Variant{
 		"ssid": dbus.MakeVariant([]byte(ssid)),
 		"mode": dbus.MakeVariant("infrastructure"),
@@ -94,7 +110,7 @@ func wifiSettings(ssid, password string, hidden bool) settings {
 	if password != "" {
 		wireless["security"] = dbus.MakeVariant("802-11-wireless-security")
 		s["802-11-wireless-security"] = map[string]dbus.Variant{
-			"key-mgmt": dbus.MakeVariant("wpa-psk"),
+			"key-mgmt": dbus.MakeVariant(km),
 			"psk":      dbus.MakeVariant(password),
 		}
 	}
@@ -195,6 +211,23 @@ func (n nmNetwork) AccessPoints() ([]AccessPoint, error) {
 	return dedupeAPs(aps), nil
 }
 
+// apRSN is the RSN flags of the access point named ssid on device dev, 0
+// when it is not in range (a hidden network).
+func apRSN(c *dbus.Conn, dev dbus.ObjectPath, ssid string) uint32 {
+	var paths []dbus.ObjectPath
+	if err := c.Object(nmName, dev).Call(nmIface+".Device.Wireless.GetAccessPoints", 0).Store(&paths); err != nil {
+		return 0
+	}
+	for _, p := range paths {
+		o := c.Object(nmName, p)
+		if s, err := prop[[]byte](o, nmIface+".AccessPoint.Ssid"); err == nil && string(s) == ssid {
+			rsn, _ := prop[uint32](o, nmIface+".AccessPoint.RsnFlags")
+			return rsn
+		}
+	}
+	return 0
+}
+
 // errWrongPassword is a secured connection that NetworkManager dropped
 // while activating: nearly always a wrong key.
 var errWrongPassword = fmt.Errorf("Wrong password")
@@ -224,7 +257,7 @@ func (n nmNetwork) Connect(ssid, password string, hidden bool) error {
 	}
 	var settingsPath, active dbus.ObjectPath
 	err = c.Object(nmName, nmPath).Call(nmIface+".AddAndActivateConnection", 0,
-		wifiSettings(ssid, password, hidden), dev, dbus.ObjectPath("/")).Store(&settingsPath, &active)
+		wifiSettings(ssid, password, hidden, keyMgmt(apRSN(c, dev, ssid))), dev, dbus.ObjectPath("/")).Store(&settingsPath, &active)
 	if err != nil {
 		return err
 	}
