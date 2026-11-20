@@ -113,6 +113,11 @@ func main() {
 		Close:   func() { closeAsked = true },
 		Runner:  ExecRunner{},
 		Network: nmNetwork{},
+		// The Language page asks the daemon; the group only decides
+		// whether it starts read-only.
+		Settings:     daemonSettings{},
+		Admin:        InAdminGroup(),
+		SystemLocale: systemLocale(),
 		AppInstalled: func(id string) {
 			// The chosen browser goes to the COSMIC dock.
 			if d == Cosmic && isBrowser(appList, id) {
@@ -244,4 +249,13 @@ func versionLine(path string) string {
 		s += " · " + flavor
 	}
 	return s
+}
+
+// systemLocale is the LANG of /etc/locale.conf.
+func systemLocale() string {
+	b, err := os.ReadFile("/etc/locale.conf")
+	if err != nil {
+		return ""
+	}
+	return CurrentLocale(string(b))
 }

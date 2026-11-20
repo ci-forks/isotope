@@ -48,4 +48,14 @@
       <allow_active>no</allow_active>
     </defaults>
   </action>
+
+  <action id="io.kairos.isotope-update.settings">
+    <description>Change a system setting, such as the language</description>
+    <message>Only members of the admin group can change system settings.</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>no</allow_active>
+    </defaults>
+  </action>
 </policyconfig>

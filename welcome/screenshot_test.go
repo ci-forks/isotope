@@ -145,6 +145,19 @@ var pages = []struct {
 	{"network-load-error", Sway, 1, sizes, func(u *UI) {
 		networkAt(u, &fakeNet{stateErr: errors.New("no bus")})
 	}},
+	{"language-list", Sway, 1, sizes, func(u *UI) {
+		u.hooks.Runner = &fakeRunner{out: map[string]string{"locale -a": localeList}}
+		u.hooks.Settings, u.hooks.Admin, u.hooks.SystemLocale = &fakeSettings{}, true, "en_US.UTF-8"
+		to(u, PLanguage)
+	}},
+	{"language-search", Sway, 1, sizes, func(u *UI) {
+		p := languageAt(u, &fakeSettings{}, true, "en_US.UTF-8")
+		p.search.Editor.SetText("deu")
+		u.focus = &p.search.Editor
+	}},
+	{"language-readonly", Sway, 1, sizes, func(u *UI) {
+		languageAt(u, &fakeSettings{}, false, "de_DE.UTF-8")
+	}},
 	{"skip-confirm", Sway, 1, sizes, func(u *UI) { u.askSkip() }},
 	{"welcome-scale-2", Cosmic, 2, []image.Point{{1440, 900}}, func(*UI) {}},
 }

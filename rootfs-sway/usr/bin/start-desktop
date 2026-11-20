@@ -13,6 +13,8 @@
 # read it here too. The config's `input type:keyboard` block names no layout,
 # so sway uses these.
 [ -f /etc/profile.d/isotope-keyboard.sh ] && . /etc/profile.d/isotope-keyboard.sh
+# The system language (Welcome page), as LANG, for the same reason.
+[ -f /etc/profile.d/isotope-locale.sh ] && . /etc/profile.d/isotope-locale.sh
 
 if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ] && command -v dbus-run-session >/dev/null 2>&1; then
     exec dbus-run-session -- sway

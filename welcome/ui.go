@@ -35,6 +35,15 @@ type Hooks struct {
 	// Network is NetworkManager for the Network page. Nil shows the page
 	// as having no network device.
 	Network Network
+	// Settings changes machine settings through isotope-updated (the
+	// Language page). Nil makes the page read-only.
+	Settings Settings
+	// Admin says the user may change them (member of the admin group). The
+	// daemon decides again on every call; this only lets the page start
+	// read-only instead of failing on Continue.
+	Admin bool
+	// SystemLocale is the LANG of /etc/locale.conf, "" when it has none.
+	SystemLocale string
 	// AppInstalled is called, from a background goroutine, for each app
 	// that installed: main pins a browser to the COSMIC dock.
 	AppInstalled func(id string)
