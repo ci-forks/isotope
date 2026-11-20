@@ -4,8 +4,10 @@ import (
 	"image"
 	"slices"
 	"strings"
+	"time"
 
 	"gioui.org/layout"
+	"gioui.org/op"
 	"gioui.org/widget"
 
 	"github.com/kairos-community/isotope/guikit"
@@ -77,6 +79,12 @@ func (p *readyPage) Body(gtx layout.Context) layout.Dimensions {
 			kids = append(kids, layout.Rigid(p.languageBox), guikit.VGap(16))
 		}
 		kids = append(kids, layout.Rigid(p.summary))
+		if u.installing() {
+			kids = append(kids, guikit.VGap(16), layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				gtx.Execute(op.InvalidateCmd{At: u.now().Add(40 * time.Millisecond)})
+				return u.installProgress(gtx)
+			}))
+		}
 		if len(o.AppsFailed) > 0 {
 			kids = append(kids, guikit.VGap(16),
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {

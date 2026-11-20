@@ -79,3 +79,21 @@ func TestStateDirHonorsXDG(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+func TestShouldRemindApps(t *testing.T) {
+	dir := t.TempDir()
+	if ShouldRemindApps(dir) {
+		t.Error("no stamp: nothing to remind")
+	}
+	for s, want := range map[Stamp]bool{StampDone: false, StampSkipped: false, StampAppsPending: true} {
+		if err := WriteStamp(dir, s); err != nil {
+			t.Fatal(err)
+		}
+		if got := ShouldRemindApps(dir); got != want {
+			t.Errorf("stamp %s: ShouldRemindApps = %v, want %v", s, got, want)
+		}
+		if ShouldOpenAtLogin(dir) {
+			t.Errorf("stamp %s: the flow must not open at login", s)
+		}
+	}
+}

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"image"
 	"time"
 
@@ -28,6 +29,12 @@ type Hooks struct {
 	// Close asks the window to close. The request comes back through
 	// CloseRequested, which lets it through once the flow has ended.
 	Close func()
+	// Runner runs the programs of the pages (flatpak, nm-online). Nil
+	// leaves the Apps page with nothing to install.
+	Runner Runner
+	// AppInstalled is called, from a background goroutine, for each app
+	// that installed: main pins a browser to the COSMIC dock.
+	AppInstalled func(id string)
 }
 
 // page is one screen of the flow. Each lives in its own page_*.go file and
@@ -72,6 +79,14 @@ type UI struct {
 	// appsPending is set when Apps was skipped for being offline: the
 	// stamp then asks the next login to remind the user.
 	appsPending bool
+	// appList is the curated apps (AppListFile); installer is the batch
+	// Continue on the Apps page started, if it did.
+	appList   []App
+	installer *Installer
+	// batches counts the batches started; appsPrior is what the earlier
+	// ones installed (the Outcome's names).
+	batches   int
+	appsPrior []string
 
 	pages  map[PageID]page
 	shown  PageID    // the page drawn last frame
@@ -121,6 +136,7 @@ func (u *UI) page() page {
 // Layout draws one frame over the whole OS window.
 func (u *UI) Layout(gtx layout.Context) layout.Dimensions {
 	gtx = guikit.Scaled(gtx, u.scale)
+	u.syncApps()
 	event.Op(gtx.Ops, u)
 	guikit.WindowKeys(gtx, &u.scale, u.prev)
 	if u.confirming {
@@ -188,7 +204,12 @@ func (u *UI) update(gtx layout.Context) {
 func (u *UI) steps() guikit.Steps {
 	var names []string
 	for _, p := range u.flow.Pages() {
-		names = append(names, PageTitle(p))
+		name := PageTitle(p)
+		if p == PApps && u.installing() {
+			done, total, _ := u.installer.Progress()
+			name = fmt.Sprintf("%s %d/%d", name, min(done+1, total), total)
+		}
+		names = append(names, name)
 	}
 	return guikit.Steps{Title: "Isotope", Names: names, Current: u.flow.Index(), Note: u.version}
 }
@@ -232,6 +253,11 @@ func (u *UI) prev() {
 
 // skipPage is Skip: the page's setting is left as it was.
 func (u *UI) skipPage() {
+	// Apps skipped for lack of a network: the next login reminds. A page
+	// opened alone writes no stamp, so it leaves no reminder either.
+	if ap, ok := u.page().(*appsPage); ok && ap.unavailable() && len(u.flow.Pages()) > 1 {
+		u.appsPending = true
+	}
 	u.flow.Skip()
 	if u.flow.Done() {
 		u.finish(u.endStamp())

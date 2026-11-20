@@ -77,6 +77,16 @@ func applied(u *UI) {
 	o.AppsInstalled = []string{"Firefox", "Loupe", "VLC", "Text Editor", "Papers"}
 }
 
+// appsAt is the Apps page, loaded from the runner r.
+func appsAt(u *UI, r *fakeRunner) {
+	u.hooks.Runner = r
+	u.appList = apps
+	to(u, PApps)
+	p := u.page().(*appsPage)
+	p.started = true
+	p.load(true)
+}
+
 var pages = []struct {
 	name  string
 	d     Desktop
@@ -101,11 +111,27 @@ var pages = []struct {
 		o.AppsFailed = []string{"VLC", "Papers"}
 		to(u, PReady)
 	}},
+	{"apps-default", Sway, 1, sizes, func(u *UI) { appsAt(u, online()) }},
+	{"apps-installed-greyed", Sway, 1, sizes, func(u *UI) {
+		r := online()
+		r.out[installedList] = "org.mozilla.firefox\n"
+		appsAt(u, r)
+	}},
+	{"apps-offline", Sway, 1, sizes, func(u *UI) { appsAt(u, offline()) }},
+	{"apps-installing", Sway, 1, sizes, func(u *UI) {
+		appsAt(u, online())
+		u.installer = NewInstaller(online(), u.appList)
+		u.installer.setProgress(1, 5, "org.videolan.VLC")
+	}},
 	{"skip-confirm", Sway, 1, sizes, func(u *UI) { u.askSkip() }},
 	{"welcome-scale-2", Cosmic, 2, []image.Point{{1440, 900}}, func(*UI) {}},
 }
 
+// apps is the real list, for the Apps cases.
+var apps []App
+
 func TestScreenshots(t *testing.T) {
+	apps = loadApps(t)
 	if os.Getenv("ISOTOPE_GUI_SKIP_SCREENSHOTS") == "1" {
 		t.Skip("ISOTOPE_GUI_SKIP_SCREENSHOTS=1")
 	}

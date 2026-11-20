@@ -64,3 +64,10 @@ func ReadStamp(stateDir string) (Stamp, bool) {
 	}
 	return Stamp(strings.TrimSpace(string(b))), true
 }
+
+// ShouldRemindApps is true when the flow ended with Apps skipped for lack of
+// a network or a Flathub: the login sends the reminder notification.
+func ShouldRemindApps(stateDir string) bool {
+	s, ok := ReadStamp(stateDir)
+	return ok && s == StampAppsPending
+}

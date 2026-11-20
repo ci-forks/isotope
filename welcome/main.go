@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	"gioui.org/app"
 	"gioui.org/io/system"
@@ -68,6 +69,10 @@ func main() {
 	home, _ := os.UserHomeDir()
 	stateDir := StateDir(home, os.Getenv)
 	if page == PageLogin && !ShouldOpenAtLogin(stateDir) {
+		// Apps was skipped for want of a network: remind once, then go.
+		if ShouldRemindApps(stateDir) {
+			remindApps(ExecRunner{}, stateDir)
+		}
 		os.Exit(0)
 	}
 	d, err := ReadDesktop(SessionFile)
@@ -78,6 +83,16 @@ func main() {
 	// Only the whole flow writes the stamp: a page opened from the menu
 	// says nothing about the first login.
 	stamps := page == PageAll || page == PageLogin
+
+	var appList []App
+	if f, err := os.Open(AppListFile); err == nil {
+		if a, err := ParseAppList(f); err == nil {
+			appList = a
+		} else {
+			fmt.Fprintf(os.Stderr, "isotope-welcome: %v\n", err)
+		}
+		f.Close()
+	}
 
 	win := new(app.Window)
 	// closeAsked: the UI asked to close; the close is sent after the frame.
@@ -95,8 +110,18 @@ func main() {
 				fmt.Fprintf(os.Stderr, "isotope-welcome: %v\n", err)
 			}
 		},
-		Close: func() { closeAsked = true },
+		Close:  func() { closeAsked = true },
+		Runner: ExecRunner{},
+		AppInstalled: func(id string) {
+			// The chosen browser goes to the COSMIC dock.
+			if d == Cosmic && isBrowser(appList, id) {
+				if err := PinToCosmicDock(home, id); err != nil {
+					fmt.Fprintf(os.Stderr, "isotope-welcome: %v\n", err)
+				}
+			}
+		},
 	})
+	u.appList = appList
 	u.version = versionLine("/etc/isotope/release")
 	if f, err := os.Open(ShortcutsFile); err == nil {
 		if s, err := ParseShortcuts(f); err == nil {
@@ -123,6 +148,14 @@ func main() {
 				// A close nothing asked about (or that could not be
 				// stopped): before the stamp, a skip.
 				u.Closed()
+				// An install the window started keeps running; say when
+				// it is done, as the window is gone.
+				if ok, failed, running := u.AwaitInstalls(); running {
+					s, b := CompletionNotice(ok, failed)
+					if err := Notify(ExecRunner{}, s, b, 15, 2*time.Second); err != nil {
+						fmt.Fprintf(os.Stderr, "isotope-welcome: %s: %s\n", s, b)
+					}
+				}
 				if e.Err != nil {
 					fmt.Fprintf(os.Stderr, "isotope-welcome: %v\n", e.Err)
 					os.Exit(1)
@@ -161,6 +194,16 @@ func logoutCommand(d Desktop) []string {
 		return []string{"niri", "msg", "action", "quit", "--skip-confirmation"}
 	}
 	return []string{"cosmic-osd", "log-out"}
+}
+
+// isBrowser: id is a browser of the list.
+func isBrowser(apps []App, id string) bool {
+	for _, a := range apps {
+		if a.ID == id {
+			return a.Group == "browser"
+		}
+	}
+	return false
 }
 
 // start runs a command in the background and does not wait for it.
