@@ -69,12 +69,15 @@ if [ "$DESKTOP" = cosmic ]; then
     check "COSMIC defaults to dark" "test \"\$(cat $T.Mode/v1/is_dark)\" = true"
     # The night accent of theme/palette.toml, as the hex COSMIC's config writes
     # (RON: Some("#E9E7C1FF")). Compared case-insensitively.
-    want=$(cd "$(dirname "$0")/../.." && awk '/^\[night\]/{n=1;next} /^\[/{n=0} n && $1=="accent"{gsub(/"/,"",$3); print toupper(substr($3,2,6)); exit}' theme/palette.toml)
-    if [ -z "$want" ]; then echo "FAIL: no night accent in theme/palette.toml"; fail=1; fi
-    check "COSMIC dark builder accent is the Isotope accent #$want" \
-        "grep -qi '#${want}ff' $T.Dark.Builder/v2/accent"
-    check "COSMIC dark theme accent is the Isotope accent #$want" \
-        "grep -qi 'base: \"#${want}ff\"' $T.Dark/v2/accent"
+    accent_of() { (cd "$(dirname "$0")/../.." && awk -v sec="[$1]" '$0==sec{n=1;next} /^\[/{n=0} n && $1=="accent"{gsub(/"/,"",$3); print toupper(substr($3,2,6)); exit}' theme/palette.toml); }
+    for m in night:Dark day:Light; do
+        want=$(accent_of "${m%%:*}"); M=${m##*:}
+        if [ -z "$want" ]; then echo "FAIL: no ${m%%:*} accent in theme/palette.toml"; fail=1; continue; fi
+        check "COSMIC $M builder accent is the Isotope accent #$want" \
+            "grep -qi '#${want}ff' $T.$M.Builder/v2/accent"
+        check "COSMIC $M theme accent is the Isotope accent #$want" \
+            "grep -qi 'base: \"#${want}ff\"' $T.$M/v2/accent"
+    done
 fi
 
 exit $fail

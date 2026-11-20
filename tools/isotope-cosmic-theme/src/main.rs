@@ -82,6 +82,10 @@ fn obj<'a>(v: &'a Value, what: &str) -> Result<&'a serde_json::Map<String, Value
 
 /// Build the builder and the theme of one mode from its JSON section.
 pub fn build(mode: &Value, dark: bool) -> Result<(ThemeBuilder, Theme)> {
+    let top = mode.as_object().ok_or("not an object")?;
+    if let Some(k) = top.keys().find(|k| !["palette", "builder", "look", "on_accent"].contains(&k.as_str())) {
+        return Err(format!("unknown section {k:?}"));
+    }
     let mut b = if dark { ThemeBuilder::dark() } else { ThemeBuilder::light() };
 
     // Palette: every key lands on the field of that name.
@@ -268,6 +272,13 @@ mod tests {
         let j = fixture();
         let (_, t) = build(&j["dark"], true).unwrap();
         assert!(t.frosted_windows && !t.frosted_maximized_apps);
+    }
+
+    #[test]
+    fn unknown_mode_section_is_an_error() {
+        let mut j = fixture();
+        j["dark"]["looks"] = serde_json::json!({});
+        assert!(build(&j["dark"], true).unwrap_err().contains("looks"));
     }
 
     #[test]
