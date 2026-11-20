@@ -5112,6 +5112,10 @@ RUN --mount=type=cache,id=cosmic-cargo-registry,target=/usr/local/cargo/registry
 
 FROM common-config AS cosmic-config
 COPY rootfs-cosmic/ /
+# The Isotope panel defaults live once, in the Isotope layout (the Layout page
+# installs that dir into a user's config); the system defaults are a copy of
+# it, so the two cannot drift. test/look/check-look.sh diffs them.
+RUN cp -a /usr/share/cosmic-layouts/isotope/com.system76.CosmicPanel* /usr/share/cosmic/
 COPY --from=cosmic-theme /cosmic-theme/ /
 
 FROM common-config AS niri-config

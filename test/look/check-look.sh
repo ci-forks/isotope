@@ -80,4 +80,23 @@ if [ "$DESKTOP" = cosmic ]; then
     done
 fi
 
+# --- COSMIC toolkit, compositor, panels and the Isotope layout -------------
+if [ "$DESKTOP" = cosmic ]; then
+    K=/usr/share/cosmic/com.system76.CosmicTk/v1
+    check "CosmicTk icon_theme is Conflux"     "grep -qx '\"Conflux\"' $K/icon_theme"
+    check "CosmicTk interface_font is Inter Variable" "grep -q 'family: \"Inter Variable\"' $K/interface_font"
+    check "CosmicTk monospace_font is JetBrains Mono" "grep -q 'family: \"JetBrains Mono\"' $K/monospace_font"
+    check "CosmicTk header_size and interface_density are Standard" \
+        "grep -qx Standard $K/header_size && grep -qx Standard $K/interface_density"
+    P=/usr/share/cosmic/com.system76.CosmicComp/v1
+    check "CosmicComp active_hint is false"    "grep -qx false $P/active_hint"
+    check "CosmicComp shadows tiled windows"   "grep -q 'shadow_tiled_windows: true' $P/appearance_settings"
+    L=/usr/share/cosmic-layouts/isotope
+    check "the Isotope layout has an icon and a name" "test -s $L/icon.png && grep -q '^name en=\"Isotope\"' $L/layout.kdl"
+    check "the system panel defaults are the Isotope layout's (no drift)" \
+        "set -- $L/com.system76.CosmicPanel*; test -d \$1 && for d in \"\$@\"; do diff -r \$d /usr/share/cosmic/\$(basename \$d) || exit 1; done"
+    check "the Isotope layout is listed first (lowest id)" \
+        "own=\$(sed -n 's/^id //p' $L/layout.kdl); test -n \"\$own\"; for f in /usr/share/cosmic-layouts/*/layout.kdl; do [ \$f = $L/layout.kdl ] && continue; o=\$(sed -n 's/^id //p' \$f); [ \"\$own\" -lt \"\$o\" ] || exit 1; done; test \$(ls -d /usr/share/cosmic-layouts/*/ | wc -l) -gt 1"
+fi
+
 exit $fail
