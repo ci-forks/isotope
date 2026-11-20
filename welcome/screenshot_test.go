@@ -62,6 +62,8 @@ func fixture(t *testing.T, d Desktop) *UI {
 	u.now = func() time.Time { return at }
 	u.version = "Isotope v0.0.25 · " + string(d)
 	u.shortcuts = sheet(t, d)
+	u.hooks.LayoutsDir = layoutFixtures
+	u.hooks.Home = "/nonexistent"
 	return u
 }
 
@@ -170,6 +172,15 @@ var pages = []struct {
 		u.page().(*appearancePage).start()
 		u.page().(*appearancePage).wait()
 	}},
+	{"cosmic-layout", Cosmic, 1, sizes, func(u *UI) {
+		to(u, PLayout)
+		p := u.page().(*layoutPage)
+		p.start()
+		p.wait()
+		p.choose("bottom-panel")
+	}},
+	{"cosmic-workflow", Cosmic, 1, sizes, func(u *UI) { to(u, PWorkflow) }},
+	{"cosmic-launcher", Cosmic, 1, sizes, func(u *UI) { to(u, PLauncher) }},
 	{"skip-confirm", Sway, 1, sizes, func(u *UI) { u.askSkip() }},
 	{"welcome-scale-2", Cosmic, 2, []image.Point{{1440, 900}}, func(*UI) {}},
 }

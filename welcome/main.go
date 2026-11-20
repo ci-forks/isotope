@@ -118,6 +118,7 @@ func main() {
 		Settings:     daemonSettings{},
 		Admin:        InAdminGroup(),
 		Home:         home,
+		LayoutsDir:   CosmicLayoutsDir,
 		SystemLocale: systemLocale(),
 		AppInstalled: func(id string) {
 			// The chosen browser goes to the COSMIC dock.
