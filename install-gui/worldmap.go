@@ -13,6 +13,7 @@ import (
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
 
+	"github.com/kairos-community/isotope/guikit"
 	"github.com/kairos-community/isotope/install-ui/core"
 )
 
@@ -80,17 +81,17 @@ func (u *UI) worldMap(gtx layout.Context) layout.Dimensions {
 			}
 		}
 		p.Close()
-		paint.FillShape(gtx.Ops, colField, clip.Outline{Path: p.End()}.Op())
+		paint.FillShape(gtx.Ops, guikit.ColField, clip.Outline{Path: p.End()}.Op())
 	}
 	// The grid every 30 degrees of longitude and 45 of latitude.
-	grid := over(colSidebar, colText, 0.05)
+	grid := guikit.Over(guikit.ColSidebar, guikit.ColText, 0.05)
 	for lon := -120.0; lon <= 120; lon += 60 {
 		x := int(mapPoint(sz, lon, 0).X)
-		fillRect(gtx, image.Rect(x, 0, x+1, sz.Y), grid)
+		guikit.FillRect(gtx, image.Rect(x, 0, x+1, sz.Y), grid)
 	}
 	for lat := -45.0; lat <= 45; lat += 45 {
 		y := int(mapPoint(sz, 0, lat).Y)
-		fillRect(gtx, image.Rect(0, y, sz.X, y+1), grid)
+		guikit.FillRect(gtx, image.Rect(0, y, sz.X, y+1), grid)
 	}
 	if u.tzSel >= 0 {
 		zone := u.w.Zones[u.tzSel]
@@ -100,14 +101,14 @@ func (u *UI) worldMap(gtx layout.Context) layout.Dimensions {
 			center := float64(off) / 3600 * 15
 			x0 := int(mapPoint(sz, center-7.5, 0).X)
 			x1 := int(mapPoint(sz, center+7.5, 0).X)
-			fillRect(gtx, image.Rect(x0, 0, x1, sz.Y), over(colSidebar, colAccent, 0.14))
+			guikit.FillRect(gtx, image.Rect(x0, 0, x1, sz.Y), guikit.Over(guikit.ColSidebar, guikit.ColAccent, 0.14))
 		}
 		if c, ok := u.zoneCoords[zone]; ok {
 			p := mapPoint(sz, c.Lon, c.Lat)
-			ring, dot := dp(gtx, 9), dp(gtx, 4)
+			ring, dot := guikit.Dp(gtx, 9), guikit.Dp(gtx, 4)
 			cx, cy := int(p.X), int(p.Y)
-			fillRRect(gtx, image.Rect(cx-ring, cy-ring, cx+ring, cy+ring), ring, over(colSidebar, colAccent, 0.25))
-			fillRRect(gtx, image.Rect(cx-dot, cy-dot, cx+dot, cy+dot), dot, colGlow)
+			guikit.FillRRect(gtx, image.Rect(cx-ring, cy-ring, cx+ring, cy+ring), ring, guikit.Over(guikit.ColSidebar, guikit.ColAccent, 0.25))
+			guikit.FillRRect(gtx, image.Rect(cx-dot, cy-dot, cx+dot, cy+dot), dot, guikit.ColGlow)
 		}
 	}
 	pointer.CursorPointer.Add(gtx.Ops)

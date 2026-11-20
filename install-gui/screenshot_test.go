@@ -19,6 +19,7 @@ import (
 	"gioui.org/op"
 	"gioui.org/unit"
 
+	"github.com/kairos-community/isotope/guikit"
 	"github.com/kairos-community/isotope/install-ui/core"
 )
 
@@ -75,7 +76,7 @@ func fixture(t *testing.T, trustedBoot bool) *UI {
 	w.TrustedBoot = trustedBoot
 	w.NewKey = func() (string, error) { return testKey, nil }
 	w.PickGroup = func() int { return 2 }
-	u := newUI(&w, newShaper(), hooks{
+	u := newUI(&w, guikit.NewShaper(), hooks{
 		confirm:  func(core.Choice) {},
 		relaunch: func(core.GUIState) { t.Fatal("relaunch") },
 		poweroff: func() {},
@@ -102,16 +103,16 @@ func mustNext(t *testing.T, u *UI, want gpage) {
 	u.next()
 	if u.page != want {
 		errs := []string{}
-		for _, f := range []*field{u.user, u.pw, u.pw2, u.gh, u.pp, u.pp2, u.rk, u.tzField} {
-			if f.err != "" {
-				errs = append(errs, f.err)
+		for _, f := range []*guikit.Field{u.user, u.pw, u.pw2, u.gh, u.pp, u.pp2, u.rk, u.tzField} {
+			if f.Err != "" {
+				errs = append(errs, f.Err)
 			}
 		}
 		t.Fatalf("Continue went to page %d, want %d (errors: %s %s)", u.page, want, strings.Join(errs, "; "), u.encErr)
 	}
 }
 
-func set(f *field, s string) { f.ed.SetText(s) }
+func set(f *guikit.Field, s string) { f.Editor.SetText(s) }
 
 func toKeyboard(t *testing.T, u *UI) {
 	mustNext(t, u, pKeyboard)

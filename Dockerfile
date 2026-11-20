@@ -4968,9 +4968,11 @@ COPY --from=golang:1.25.0-alpine3.22 /usr/local/go /usr/local/go
 ENV PATH=/usr/local/go/bin:$PATH GOTOOLCHAIN=local
 WORKDIR /src
 COPY install-ui/go.mod install-ui/go.sum install-ui/
+COPY guikit/go.mod guikit/go.sum guikit/
 COPY install-gui/go.mod install-gui/go.sum install-gui/
 RUN cd install-gui && go mod download
 COPY install-ui/ install-ui/
+COPY guikit/ guikit/
 COPY install-gui/ install-gui/
 RUN cd install-gui && \
     CGO_ENABLED=1 ISOTOPE_GUI_SKIP_SCREENSHOTS=1 go test -tags nox11,novulkan . && \

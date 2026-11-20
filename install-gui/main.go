@@ -19,6 +19,7 @@ import (
 	"gioui.org/op"
 	"gioui.org/unit"
 
+	"github.com/kairos-community/isotope/guikit"
 	"github.com/kairos-community/isotope/install-ui/core"
 )
 
@@ -36,7 +37,7 @@ func main() {
 
 	wizards := make(chan core.Wizard, 1)
 	confirmed := make(chan core.Choice, 1)
-	u := newUI(nil, newShaper(), hooks{
+	u := newUI(nil, guikit.NewShaper(), hooks{
 		confirm:  func(c core.Choice) { confirmed <- c },
 		relaunch: relaunch,
 		poweroff: func() { _ = exec.Command("poweroff").Run() },

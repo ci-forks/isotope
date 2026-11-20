@@ -21,10 +21,10 @@ import (
 func (u *UI) saveState(next gpage) core.GUIState {
 	s := core.GUIState{
 		Next:        "keyboard",
-		Search:      u.kbSearch.ed.Text(),
-		Hostname:    u.host.ed.Text(),
-		Username:    u.user.ed.Text(),
-		Github:      u.gh.ed.Text(),
+		Search:      u.kbSearch.Editor.Text(),
+		Hostname:    u.host.Editor.Text(),
+		Username:    u.user.Editor.Text(),
+		Github:      u.gh.Editor.Text(),
 		Encrypt:     u.encOn,
 		RecoveryKey: u.recKey,
 	}
@@ -59,13 +59,13 @@ func (u *UI) restore(s core.GUIState) {
 			u.pickZone(i)
 		}
 	}
-	u.kbSearch.ed.SetText(s.Search)
-	u.kbSearch.ed.SetCaret(u.kbSearch.ed.Len(), u.kbSearch.ed.Len())
+	u.kbSearch.Editor.SetText(s.Search)
+	u.kbSearch.Editor.SetCaret(u.kbSearch.Editor.Len(), u.kbSearch.Editor.Len())
 	if s.Hostname != "" {
-		u.host.ed.SetText(s.Hostname)
+		u.host.Editor.SetText(s.Hostname)
 	}
-	u.user.ed.SetText(s.Username)
-	u.gh.ed.SetText(s.Github)
+	u.user.Editor.SetText(s.Username)
+	u.gh.Editor.SetText(s.Github)
 	for i, d := range w.Disks {
 		if d.Path == s.Disk {
 			u.diskSel = i

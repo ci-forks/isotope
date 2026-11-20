@@ -45,8 +45,8 @@ func TestPasswordsMustMatch(t *testing.T) {
 		t.Fatal("different passwords match")
 	}
 	u.next()
-	if u.page != pAccount || u.pw2.err == "" {
-		t.Fatalf("page %d, error %q", u.page, u.pw2.err)
+	if u.page != pAccount || u.pw2.Err == "" {
+		t.Fatalf("page %d, error %q", u.page, u.pw2.Err)
 	}
 }
 
@@ -60,8 +60,8 @@ func TestCoreErrorsShowUnderTheirFields(t *testing.T) {
 	if u.page != pAccount {
 		t.Fatal("left the page with errors")
 	}
-	if u.user.err == "" || u.pw.err != "Password is required." {
-		t.Fatalf("errors: user %q, password %q", u.user.err, u.pw.err)
+	if u.user.Err == "" || u.pw.Err != "Password is required." {
+		t.Fatalf("errors: user %q, password %q", u.user.Err, u.pw.Err)
 	}
 }
 
@@ -81,8 +81,8 @@ func TestShortPassphraseStays(t *testing.T) {
 	set(u.pp, "short")
 	set(u.pp2, "short")
 	u.next()
-	if u.page != pEncrypt || u.pp.err == "" {
-		t.Fatalf("page %d, error %q", u.page, u.pp.err)
+	if u.page != pEncrypt || u.pp.Err == "" {
+		t.Fatalf("page %d, error %q", u.page, u.pp.Err)
 	}
 }
 
@@ -142,7 +142,7 @@ func TestRestoreReopensWhereItWas(t *testing.T) {
 	if u.page != pAccount || u.w.Choice.KeyboardLayout != "it" || u.w.Choice.Timezone != "Europe/Paris" {
 		t.Fatalf("page %d, choice %+v", u.page, u.w.Choice)
 	}
-	if u.user.ed.Text() != "alex" || u.pw.ed.Text() != "" || u.diskSel != 1 || !u.encOn {
+	if u.user.Editor.Text() != "alex" || u.pw.Editor.Text() != "" || u.diskSel != 1 || !u.encOn {
 		t.Fatal("fields not restored")
 	}
 }
@@ -156,7 +156,7 @@ func TestMapClickPicksTheNearestCity(t *testing.T) {
 	if z := u.w.Zones[u.tzSel]; z != "America/New_York" {
 		t.Fatalf("picked %s", z)
 	}
-	if u.tzField.ed.Text() != "America/New_York" || u.zoneFiltering() {
+	if u.tzField.Editor.Text() != "America/New_York" || u.zoneFiltering() {
 		t.Fatal("the field does not show the picked zone")
 	}
 }

@@ -12,13 +12,12 @@ import (
 	"gioui.org/gesture"
 	"gioui.org/io/event"
 	"gioui.org/io/key"
-	"gioui.org/io/pointer"
 	"gioui.org/layout"
 	"gioui.org/op"
-	"gioui.org/op/clip"
 	"gioui.org/text"
 	"gioui.org/widget"
 
+	"github.com/kairos-community/isotope/guikit"
 	"github.com/kairos-community/isotope/install-ui/core"
 )
 
@@ -123,7 +122,7 @@ type hooks struct {
 // drives. Every rule is core's: the UI collects a page's fields, calls the
 // core.Wizard methods for that page, shows their errors and follows Page.
 type UI struct {
-	shaper *text.Shaper
+	*guikit.Theme
 	w      *core.Wizard
 	page   gpage
 	pageAt time.Time
@@ -139,27 +138,27 @@ type UI struct {
 
 	focus     event.Tag // focus this on the next frame
 	scale     float32   // Ctrl+Plus and Ctrl+Minus
-	bg        desktop
+	win       guikit.Window
 	startedOK bool
 
 	back, cont, shutdown widget.Clickable
 
-	kbSearch, kbTry *field
+	kbSearch, kbTry *guikit.Field
 	kbList          widget.List
-	kbRows          []rowClick
+	kbRows          []guikit.Row
 	kbSel           int
 	kbShown         []int
 	kbApplied       bool
-	tzField         *field
+	tzField         *guikit.Field
 	tzList          widget.List
-	tzRows          []rowClick
+	tzRows          []guikit.Row
 	tzSel           int
 	tzShown         []int
 	zoneCoords      map[string]core.Coord
 	mapClick        gesture.Click
 	mapSize         image.Point
 
-	host, user, pw, pw2, gh *field
+	host, user, pw, pw2, gh *guikit.Field
 	ghState                 githubState
 	acctList                widget.List
 	encList                 widget.List
@@ -173,9 +172,9 @@ type UI struct {
 	encOn, recKey  bool
 	encNo, encYes  widget.Clickable
 	recBox         widget.Clickable
-	pp, pp2        *field
+	pp, pp2        *guikit.Field
 	encErr         string
-	rk             *field
+	rk             *guikit.Field
 	showQR         bool
 	qrButton       widget.Clickable
 	change         [6]widget.Clickable
@@ -228,21 +227,21 @@ type installState struct {
 const logKeep = 200
 
 func newUI(w *core.Wizard, shaper *text.Shaper, h hooks) *UI {
-	u := &UI{shaper: shaper, w: w, hooks: h, now: time.Now, scale: 1}
-	u.kbSearch = newField(true)
-	u.kbTry = newField(true)
-	u.tzField = newField(true)
-	u.tzField.selectOnFocus = true
-	u.host = newField(true)
-	u.host.selectOnFocus = true
-	u.user = newField(true)
-	u.pw = newSecret()
-	u.pw2 = newSecret()
-	u.gh = newField(true)
-	u.pp = newSecret()
-	u.pp2 = newSecret()
-	u.rk = newField(true)
-	u.rk.ed.MaxLen = 80
+	u := &UI{Theme: &guikit.Theme{Shaper: shaper}, w: w, hooks: h, now: time.Now, scale: 1}
+	u.kbSearch = guikit.NewField(true)
+	u.kbTry = guikit.NewField(true)
+	u.tzField = guikit.NewField(true)
+	u.tzField.SelectOnFocus = true
+	u.host = guikit.NewField(true)
+	u.host.SelectOnFocus = true
+	u.user = guikit.NewField(true)
+	u.pw = guikit.NewSecret()
+	u.pw2 = guikit.NewSecret()
+	u.gh = guikit.NewField(true)
+	u.pp = guikit.NewSecret()
+	u.pp2 = guikit.NewSecret()
+	u.rk = guikit.NewField(true)
+	u.rk.Editor.MaxLen = 80
 	u.kbList.Axis = layout.Vertical
 	u.tzList.Axis = layout.Vertical
 	u.logList.Axis = layout.Vertical
@@ -266,12 +265,12 @@ func (u *UI) setWizard(w *core.Wizard) {
 	u.kbSel = w.KeyboardIndex()
 	u.tzSel = w.TimezoneIndex()
 	if u.tzSel >= 0 {
-		u.tzField.ed.SetText(w.Zones[u.tzSel])
-		u.tzField.ed.SetCaret(u.tzField.ed.Len(), u.tzField.ed.Len())
+		u.tzField.Editor.SetText(w.Zones[u.tzSel])
+		u.tzField.Editor.SetCaret(u.tzField.Editor.Len(), u.tzField.Editor.Len())
 	}
-	u.host.ed.SetText(w.HostnameValue())
-	u.kbRows = make([]rowClick, len(w.Keyboards))
-	u.tzRows = make([]rowClick, len(w.Zones))
+	u.host.Editor.SetText(w.HostnameValue())
+	u.kbRows = make([]guikit.Row, len(w.Keyboards))
+	u.tzRows = make([]guikit.Row, len(w.Zones))
 	u.diskCards = make([]widget.Clickable, len(w.Disks))
 	u.describeDisks()
 	u.scrollToSelection()
@@ -310,24 +309,24 @@ func (u *UI) refocus() {
 	case pWelcome, pDisk:
 		u.focus = &u.cont
 	case pKeyboard:
-		u.focus = &u.kbSearch.ed
+		u.focus = &u.kbSearch.Editor
 		if u.kbApplied {
 			// A layout was just applied: try it.
-			u.focus = &u.kbTry.ed
+			u.focus = &u.kbTry.Editor
 		}
 	case pAccount:
-		u.focus = &u.user.ed
+		u.focus = &u.user.Editor
 	case pEncrypt:
 		switch {
 		case u.encOn && !u.w.TrustedBoot:
-			u.focus = &u.pp.ed
+			u.focus = &u.pp.Editor
 		case u.encOn || u.recKey:
 			u.focus = &u.encYes
 		default:
 			u.focus = &u.encNo
 		}
 	case pRecovery:
-		u.focus = &u.rk.ed
+		u.focus = &u.rk.Editor
 	case pSummary:
 		// Nothing: Enter must neither erase a disk nor go back by itself.
 		// Tab reaches the Change links and both buttons.
@@ -389,7 +388,7 @@ func (u *UI) prev() {
 // --- keyboard and time zone -------------------------------------------------
 
 func (u *UI) filterKeyboards() {
-	q := strings.ToLower(strings.TrimSpace(u.kbSearch.ed.Text()))
+	q := strings.ToLower(strings.TrimSpace(u.kbSearch.Editor.Text()))
 	u.kbShown = u.kbShown[:0]
 	for i, k := range u.w.Keyboards {
 		if q == "" || strings.Contains(strings.ToLower(k.Description), q) || strings.Contains(strings.ToLower(k.Code()), q) {
@@ -404,7 +403,7 @@ func zoneMatch(zone, q string) bool {
 }
 
 func (u *UI) filterZones() {
-	q := strings.ToLower(strings.TrimSpace(u.tzField.ed.Text()))
+	q := strings.ToLower(strings.TrimSpace(u.tzField.Editor.Text()))
 	if u.tzSel >= 0 && strings.EqualFold(q, u.w.Zones[u.tzSel]) {
 		q = ""
 	}
@@ -425,7 +424,7 @@ func (u *UI) pickKeyboard(i int) {
 		return
 	}
 	u.kbApplied = true
-	u.focus = &u.kbTry.ed
+	u.focus = &u.kbTry.Editor
 }
 
 func (u *UI) needsRelaunch() bool {
@@ -438,25 +437,25 @@ func (u *UI) needsRelaunch() bool {
 
 func (u *UI) pickZone(i int) {
 	u.tzSel = i
-	u.tzField.ed.SetText(u.w.Zones[i])
-	u.tzField.ed.SetCaret(len(u.w.Zones[i]), len(u.w.Zones[i]))
-	u.tzField.err = ""
+	u.tzField.Editor.SetText(u.w.Zones[i])
+	u.tzField.Editor.SetCaret(len(u.w.Zones[i]), len(u.w.Zones[i]))
+	u.tzField.Err = ""
 	u.filterZones()
 }
 
 func (u *UI) nextKeyboard() {
-	u.tzField.err = ""
+	u.tzField.Err = ""
 	if u.kbSel < 0 {
 		return
 	}
-	if u.tzSel < 0 || u.tzField.ed.Text() != u.w.Zones[u.tzSel] {
+	if u.tzSel < 0 || u.tzField.Editor.Text() != u.w.Zones[u.tzSel] {
 		// The field takes a zone from the list; Enter picks the first
 		// match, so a typed city is one key away.
-		if len(u.tzShown) == 1 || (len(u.tzShown) > 0 && u.tzField.ed.Text() != "") {
+		if len(u.tzShown) == 1 || (len(u.tzShown) > 0 && u.tzField.Editor.Text() != "") {
 			u.pickZone(u.tzShown[0])
 		} else {
-			u.tzField.err = "Pick a time zone from the list."
-			u.focus = &u.tzField.ed
+			u.tzField.Err = "Pick a time zone from the list."
+			u.focus = &u.tzField.Editor
 			return
 		}
 	}
@@ -483,30 +482,30 @@ func sentence(err error) string {
 	return s
 }
 
-func (u *UI) passwordsMatch() bool { return u.pw.ed.Text() == u.pw2.ed.Text() }
+func (u *UI) passwordsMatch() bool { return u.pw.Editor.Text() == u.pw2.Editor.Text() }
 
 func (u *UI) nextAccount() {
-	for _, f := range []*field{u.host, u.user, u.pw, u.pw2, u.gh} {
-		f.err = ""
+	for _, f := range []*guikit.Field{u.host, u.user, u.pw, u.pw2, u.gh} {
+		f.Err = ""
 	}
 	w := u.w
-	w.SetHostname(u.host.ed.Text())
-	var first *field
-	fail := func(f *field, err error) {
-		f.err = sentence(err)
+	w.SetHostname(u.host.Editor.Text())
+	var first *guikit.Field
+	fail := func(f *guikit.Field, err error) {
+		f.Err = sentence(err)
 		if first == nil {
 			first = f
 		}
 	}
-	if err := w.SetUsername(u.user.ed.Text()); err != nil {
+	if err := w.SetUsername(u.user.Editor.Text()); err != nil {
 		fail(u.user, err)
 	}
-	if err := w.SetPassword(u.pw.ed.Text()); err != nil {
+	if err := w.SetPassword(u.pw.Editor.Text()); err != nil {
 		fail(u.pw, err)
 	} else if !u.passwordsMatch() {
 		fail(u.pw2, fmt.Errorf("the passwords do not match"))
 	}
-	if err := w.SetGithub(u.gh.ed.Text()); err != nil && len(w.Disks) > 0 {
+	if err := w.SetGithub(u.gh.Editor.Text()); err != nil && len(w.Disks) > 0 {
 		fail(u.gh, err)
 	} else {
 		// The keys are checked before Continue too, but never wait for:
@@ -514,7 +513,7 @@ func (u *UI) nextAccount() {
 		u.lookupGithub(true)
 	}
 	if first != nil {
-		u.focus = &first.ed
+		u.focus = &first.Editor
 		return
 	}
 	// With no disk, SetGithub stays: the disk page says so and rescans.
@@ -564,19 +563,19 @@ func (u *UI) nextDisk() {
 // --- encryption and the recovery key ----------------------------------------
 
 func (u *UI) nextEncrypt() {
-	u.pp.err, u.pp2.err, u.encErr = "", "", ""
+	u.pp.Err, u.pp2.Err, u.encErr = "", "", ""
 	w := u.w
 	if !w.TrustedBoot {
 		w.SetEncrypt(u.encOn)
 		if u.encOn {
-			if err := w.SetPassphrase(u.pp.ed.Text()); err != nil {
-				u.pp.err = sentence(err)
-				u.focus = &u.pp.ed
+			if err := w.SetPassphrase(u.pp.Editor.Text()); err != nil {
+				u.pp.Err = sentence(err)
+				u.focus = &u.pp.Editor
 				return
 			}
-			if err := w.ConfirmPassphrase(u.pp2.ed.Text()); err != nil {
-				u.pp2.err = sentence(err)
-				u.focus = &u.pp2.ed
+			if err := w.ConfirmPassphrase(u.pp2.Editor.Text()); err != nil {
+				u.pp2.Err = sentence(err)
+				u.focus = &u.pp2.Editor
 				return
 			}
 		}
@@ -591,8 +590,8 @@ func (u *UI) nextEncrypt() {
 		// The key and the check share one page: the group to type back
 		// is picked as the page opens.
 		w.KeySaved()
-		u.rk.ed.SetText("")
-		u.rk.err = ""
+		u.rk.Editor.SetText("")
+		u.rk.Err = ""
 		u.goTo(pRecovery)
 		return
 	}
@@ -603,12 +602,12 @@ func (u *UI) nextEncrypt() {
 // the wizard: Continue stays disabled until it is.
 func (u *UI) recoveryConfirmed() bool {
 	c := *u.w
-	return c.ConfirmRecoveryKey(u.rk.ed.Text()) == nil
+	return c.ConfirmRecoveryKey(u.rk.Editor.Text()) == nil
 }
 
 func (u *UI) nextRecovery() {
-	if err := u.w.ConfirmRecoveryKey(u.rk.ed.Text()); err != nil {
-		u.rk.err = sentence(err)
+	if err := u.w.ConfirmRecoveryKey(u.rk.Editor.Text()); err != nil {
+		u.rk.Err = sentence(err)
 		return
 	}
 	u.goTo(pSummary)
@@ -639,7 +638,7 @@ const githubDelay = 700 * time.Millisecond
 // name, after githubDelay or at once when now is set.
 func (u *UI) lookupGithub(now bool) {
 	g := &u.ghState
-	name := strings.TrimSpace(u.gh.ed.Text())
+	name := strings.TrimSpace(u.gh.Editor.Text())
 	if u.hooks.githubKeys == nil || name == "" || name == g.asked || core.ValidateGithub(name) != nil {
 		return
 	}
@@ -661,7 +660,7 @@ func (u *UI) lookupGithub(now bool) {
 // words, and whether it is good news.
 func (u *UI) githubStatus() (string, bool, bool) {
 	g := &u.ghState
-	name := strings.TrimSpace(u.gh.ed.Text())
+	name := strings.TrimSpace(u.gh.Editor.Text())
 	switch {
 	case name == "" || core.ValidateGithub(name) != nil:
 		return "", false, false
@@ -721,34 +720,7 @@ func (u *UI) visibleSteps() []int {
 
 // keys handles the window-wide keys: Esc is Go back, Ctrl+Plus and
 // Ctrl+Minus scale the window.
-func (u *UI) keys(gtx layout.Context) {
-	for {
-		e, ok := gtx.Event(
-			key.Filter{Name: key.NameEscape},
-			key.Filter{Name: "+", Required: key.ModShortcut, Optional: key.ModShift},
-			key.Filter{Name: "=", Required: key.ModShortcut},
-			key.Filter{Name: "-", Required: key.ModShortcut},
-			key.Filter{Name: "0", Required: key.ModShortcut},
-		)
-		if !ok {
-			return
-		}
-		k, ok := e.(key.Event)
-		if !ok || k.State != key.Press {
-			continue
-		}
-		switch k.Name {
-		case key.NameEscape:
-			u.prev()
-		case "+", "=":
-			u.scale = min(2, u.scale+0.25)
-		case "-":
-			u.scale = max(1, u.scale-0.25)
-		case "0":
-			u.scale = 1
-		}
-	}
-}
+func (u *UI) keys(gtx layout.Context) { guikit.WindowKeys(gtx, &u.scale, u.prev) }
 
 // update handles the input of the current page before it is drawn.
 func (u *UI) update(gtx layout.Context) {
@@ -780,18 +752,6 @@ func (u *UI) update(gtx layout.Context) {
 	if u.qrButton.Clicked(gtx) {
 		u.showQR = !u.showQR
 	}
-	submitted := func(f *field) bool {
-		hit := false
-		for {
-			e, ok := f.ed.Update(gtx)
-			if !ok {
-				return hit
-			}
-			if _, ok := e.(widget.SubmitEvent); ok {
-				hit = true
-			}
-		}
-	}
 	switch u.page {
 	case pKeyboard:
 		for {
@@ -803,11 +763,11 @@ func (u *UI) update(gtx layout.Context) {
 				u.clickMap(e.Position)
 			}
 		}
-		before := u.kbSearch.ed.Text()
-		if submitted(u.kbSearch) && u.kbSel >= 0 {
+		before := u.kbSearch.Editor.Text()
+		if u.kbSearch.Submitted(gtx) && u.kbSel >= 0 {
 			u.pickKeyboard(u.kbSel)
 		}
-		if u.kbSearch.ed.Text() != before {
+		if u.kbSearch.Editor.Text() != before {
 			u.filterKeyboards()
 			if len(u.kbShown) > 0 {
 				u.kbSel = u.kbShown[0]
@@ -815,62 +775,54 @@ func (u *UI) update(gtx layout.Context) {
 			u.kbList.Position.First = 0
 		}
 		for {
-			e, ok := gtx.Event(
-				key.Filter{Focus: &u.kbSearch.ed, Name: key.NameUpArrow},
-				key.Filter{Focus: &u.kbSearch.ed, Name: key.NameDownArrow},
-			)
+			down, ok := guikit.ArrowKey(gtx, &u.kbSearch.Editor)
 			if !ok {
 				break
 			}
-			if k, ok := e.(key.Event); ok && k.State == key.Press {
-				u.kbSel = step(u.kbShown, u.kbSel, k.Name == key.NameDownArrow, &u.kbList)
-			}
+			u.kbSel = guikit.MoveSelection(u.kbShown, u.kbSel, down, &u.kbList)
 		}
+
 		for _, i := range u.kbShown {
-			if u.kbRows[i].clicked(gtx) {
+			if u.kbRows[i].Clicked(gtx) {
 				u.pickKeyboard(i)
 			}
 		}
-		if submitted(u.kbTry) {
+		if u.kbTry.Submitted(gtx) {
 			u.nextKeyboard()
 			return
 		}
-		beforeTZ := u.tzField.ed.Text()
-		if submitted(u.tzField) {
+		beforeTZ := u.tzField.Editor.Text()
+		if u.tzField.Submitted(gtx) {
 			u.nextKeyboard()
 			return
 		}
-		if u.tzField.ed.Text() != beforeTZ {
+		if u.tzField.Editor.Text() != beforeTZ {
 			u.filterZones()
 			u.tzList.Position.First = 0
 		}
 		for {
-			e, ok := gtx.Event(
-				key.Filter{Focus: &u.tzField.ed, Name: key.NameUpArrow},
-				key.Filter{Focus: &u.tzField.ed, Name: key.NameDownArrow},
-			)
+			down, ok := guikit.ArrowKey(gtx, &u.tzField.Editor)
 			if !ok {
 				break
 			}
-			if k, ok := e.(key.Event); ok && k.State == key.Press {
-				if i := step(u.tzShown, u.tzSel, k.Name == key.NameDownArrow, &u.tzList); i >= 0 {
-					u.pickZone(i)
-				}
+			if i := guikit.MoveSelection(u.tzShown, u.tzSel, down, &u.tzList); i >= 0 {
+				u.pickZone(i)
 			}
 		}
+
 		for _, i := range u.tzShown {
-			if u.tzRows[i].clicked(gtx) {
+			if u.tzRows[i].Clicked(gtx) {
 				u.pickZone(i)
 			}
 		}
 	case pAccount:
-		for _, f := range []*field{u.host, u.user, u.pw, u.pw2, u.gh} {
-			if submitted(f) {
+		for _, f := range []*guikit.Field{u.host, u.user, u.pw, u.pw2, u.gh} {
+			if f.Submitted(gtx) {
 				u.next()
 				return
 			}
 		}
-		if t := strings.TrimSpace(u.gh.ed.Text()); t != u.ghState.typed {
+		if t := strings.TrimSpace(u.gh.Editor.Text()); t != u.ghState.typed {
 			u.ghState.typed, u.ghState.typedAt = t, u.now()
 		}
 		u.lookupGithub(false)
@@ -917,20 +869,20 @@ func (u *UI) update(gtx layout.Context) {
 				u.recKey = true
 			} else {
 				u.encOn = true
-				u.focus = &u.pp.ed
+				u.focus = &u.pp.Editor
 			}
 		}
 		if u.recBox.Clicked(gtx) {
 			u.recKey = !u.recKey
 		}
-		for _, f := range []*field{u.pp, u.pp2} {
-			if submitted(f) {
+		for _, f := range []*guikit.Field{u.pp, u.pp2} {
+			if f.Submitted(gtx) {
 				u.next()
 				return
 			}
 		}
 	case pRecovery:
-		if submitted(u.rk) && u.recoveryConfirmed() {
+		if u.rk.Submitted(gtx) && u.recoveryConfirmed() {
 			u.next()
 			return
 		}
@@ -944,68 +896,9 @@ func (u *UI) update(gtx layout.Context) {
 	}
 }
 
-// step moves sel to the next or previous entry of shown, and scrolls the
-// list to keep it in view.
-func step(shown []int, sel int, down bool, l *widget.List) int {
-	if len(shown) == 0 {
-		return sel
-	}
-	pos := -1
-	for i, v := range shown {
-		if v == sel {
-			pos = i
-		}
-	}
-	switch {
-	case pos < 0:
-		pos = 0
-	case down && pos < len(shown)-1:
-		pos++
-	case !down && pos > 0:
-		pos--
-	}
-	if pos < l.Position.First {
-		l.Position.First = pos
-		l.Position.Offset = 0
-	} else if pos >= l.Position.First+l.Position.Count-1 && l.Position.Count > 0 {
-		l.Position.First = pos - l.Position.Count + 2
-		l.Position.Offset = 0
-	}
-	return shown[pos]
-}
-
-// pt is a convenience for image.Pt in dp.
-func pt(gtx layout.Context, x, y float32) image.Point { return image.Pt(dp(gtx, x), dp(gtx, y)) }
-
 // zoneFiltering says whether the zone field holds a search rather than the
 // chosen zone: the map gives way to the list of matches.
 func (u *UI) zoneFiltering() bool {
-	t := strings.TrimSpace(u.tzField.ed.Text())
+	t := strings.TrimSpace(u.tzField.Editor.Text())
 	return t != "" && (u.tzSel < 0 || t != u.w.Zones[u.tzSel])
-}
-
-// rowClick is a row of the layout and zone lists: clickable, but not a Tab
-// stop, so Tab goes from the search field to "Try it" and the zone field
-// instead of through every row. The arrow keys move in the lists.
-type rowClick struct{ c gesture.Click }
-
-func (r *rowClick) layout(gtx layout.Context, w layout.Widget) layout.Dimensions {
-	dims := w(gtx)
-	defer clip.Rect(image.Rectangle{Max: dims.Size}).Push(gtx.Ops).Pop()
-	pointer.CursorPointer.Add(gtx.Ops)
-	r.c.Add(gtx.Ops)
-	return dims
-}
-
-func (r *rowClick) clicked(gtx layout.Context) bool {
-	hit := false
-	for {
-		e, ok := r.c.Update(gtx.Source)
-		if !ok {
-			return hit
-		}
-		if e.Kind == gesture.KindClick {
-			hit = true
-		}
-	}
 }

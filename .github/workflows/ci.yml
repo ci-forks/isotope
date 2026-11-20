@@ -117,6 +117,13 @@ jobs:
           sudo apt-get install -y -qq --no-install-recommends \
             libwayland-dev libxkbcommon-dev libegl-dev libgles-dev libegl-mesa0 libgl1-mesa-dri
 
+      # The shared look of the graphical tools (guikit/): pure Go, no GPU.
+      - name: guikit tests
+        working-directory: guikit
+        run: |
+          test -z "$(gofmt -l .)"
+          go vet ./... && go test ./...
+
       - name: install-gui tests
         working-directory: install-gui
         env:
