@@ -47,6 +47,36 @@ func TestLocalesFallbackNames(t *testing.T) {
 	}
 }
 
+// Every name the page can show is drawable: the table's own name passes the
+// font coverage check, or the entry has an English name that does.
+func TestLocaleNamesAreDrawable(t *testing.T) {
+	for code, n := range localeNames {
+		if covered(n) {
+			continue
+		}
+		if e := englishNames[code]; e == "" || !covered(e) {
+			t.Errorf("%s: %q is not drawable and has no English name", code, n)
+		}
+	}
+	for lang, n := range languageNames {
+		if covered(n) {
+			continue
+		}
+		if e := englishLanguages[lang]; e == "" || !covered(e) {
+			t.Errorf("%s: %q is not drawable and has no English name", lang, n)
+		}
+	}
+	if got := localeName("zh_CN"); got != "Chinese (China)" {
+		t.Errorf("zh_CN = %q", got)
+	}
+	if got := localeName("ja_XX"); got != "Japanese (XX)" {
+		t.Errorf("ja_XX = %q", got)
+	}
+	if got := LocaleName("de_DE.UTF-8"); got != "Deutsch (Deutschland)" {
+		t.Errorf("de_DE = %q", got)
+	}
+}
+
 func TestLocalesRunnerError(t *testing.T) {
 	r := &fakeRunner{fail: []string{"locale"}}
 	if _, err := Locales(r); err == nil {

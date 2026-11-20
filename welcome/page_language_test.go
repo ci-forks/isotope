@@ -161,6 +161,36 @@ func TestLanguageUnchangedContinueIsSkip(t *testing.T) {
 	}
 }
 
+// A search that matches nothing clears the pick, so Continue cannot apply a
+// locale that is not on the screen.
+func TestLanguageNoMatchClearsThePick(t *testing.T) {
+	u, _ := newRecorded(NewFlow(Sway), Sway)
+	s := &fakeSettings{}
+	p := languageAt(u, s, true, "en_US.UTF-8")
+	pickCode(t, p, "de_DE.UTF-8")
+	p.search.Editor.SetText("zzzz")
+	p.refilter()
+	if len(p.shown) != 0 || p.sel != -1 {
+		t.Fatalf("shown %v, sel %d", p.shown, p.sel)
+	}
+	p.Continue()
+	p.wait()
+	if len(s.calls()) != 0 {
+		t.Fatalf("applied %v", s.calls())
+	}
+}
+
+// The search also matches the English name, for locales shown in it.
+func TestLanguageSearchMatchesTheEnglishName(t *testing.T) {
+	u, _ := newRecorded(NewFlow(Sway), Sway)
+	p := languageAt(u, &fakeSettings{}, true, "en_US.UTF-8")
+	p.search.Editor.SetText("chinese")
+	p.refilter()
+	if len(p.shown) != 1 || p.locales[p.shown[0]].Code != "zh_CN.UTF-8" {
+		t.Fatalf("shown %v", p.shown)
+	}
+}
+
 func TestHasGroup(t *testing.T) {
 	if !hasGroup([]string{"1000", "27"}, "27") || hasGroup([]string{"1000"}, "27") {
 		t.Fatal("hasGroup")

@@ -60,14 +60,46 @@ func parseLocales(out string) []Locale {
 	return list
 }
 
+// covered says every rune of s is in the interface font's coverage (Inter:
+// Latin, Greek and Cyrillic up to U+052F, Latin Extended Additional, general
+// punctuation). guikit loads no system fonts, so a name in another script
+// would draw as boxes; the page shows the English name instead.
+func covered(s string) bool {
+	for _, r := range s {
+		switch {
+		case r <= 0x052F, r >= 0x1E00 && r <= 0x1EFF, r >= 0x2000 && r <= 0x206F:
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// englishName is the English name of a locale code whose own name is shown
+// in another form, "" when there is none. The search matches it, so
+// "chinese" finds zh_CN even where the page shows the native name.
+func englishName(code string) string {
+	base, _, _ := strings.Cut(code, ".")
+	if n, ok := englishNames[base]; ok {
+		return n
+	}
+	return ""
+}
+
 // localeName is the name of a locale without its encoding ("de_DE"): the
 // table's, else the language's with the territory code, else the code.
 func localeName(base string) string {
 	if n, ok := localeNames[base]; ok {
+		if !covered(n) {
+			return englishNames[base]
+		}
 		return n
 	}
 	lang, terr, hasTerr := strings.Cut(base, "_")
 	if n, ok := languageNames[lang]; ok {
+		if !covered(n) {
+			n = englishLanguages[lang]
+		}
 		if hasTerr {
 			return n + " (" + terr + ")"
 		}
@@ -246,6 +278,26 @@ var localeNames = map[string]string{
 	"zh_HK": "中文 (中国香港特别行政区)",
 	"zh_SG": "中文 (新加坡)",
 	"zh_TW": "中文 (台灣)",
+}
+
+// englishNames are the English names of the localeNames entries that are not
+// covered by the interface font (see covered). A test keeps the two in step.
+var englishNames = map[string]string{
+	"ar_AE": "Arabic (United Arab Emirates)", "ar_EG": "Arabic (Egypt)",
+	"ar_SA": "Arabic (Saudi Arabia)", "bn_BD": "Bangla (Bangladesh)",
+	"bn_IN": "Bangla (India)", "fa_IR": "Persian (Iran)", "he_IL": "Hebrew (Israel)",
+	"hi_IN": "Hindi (India)", "hy_AM": "Armenian (Armenia)", "ja_JP": "Japanese (Japan)",
+	"ka_GE": "Georgian (Georgia)", "ko_KR": "Korean (South Korea)", "ta_IN": "Tamil (India)",
+	"th_TH": "Thai (Thailand)", "ur_PK": "Urdu (Pakistan)", "zh_CN": "Chinese (China)",
+	"zh_HK": "Chinese (Hong Kong)", "zh_SG": "Chinese (Singapore)", "zh_TW": "Chinese (Taiwan)",
+}
+
+// englishLanguages are the English names of the languageNames entries that
+// are not covered by the interface font.
+var englishLanguages = map[string]string{
+	"ar": "Arabic", "bn": "Bangla", "fa": "Persian", "he": "Hebrew", "hi": "Hindi",
+	"hy": "Armenian", "ja": "Japanese", "ka": "Georgian", "ko": "Korean", "ta": "Tamil",
+	"th": "Thai", "ur": "Urdu", "zh": "Chinese",
 }
 
 // languageNames are the languages' own names, for a territory the table

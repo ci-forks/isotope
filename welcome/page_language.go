@@ -51,7 +51,8 @@ type languagePage struct {
 	retry  widget.Clickable
 }
 
-// load runs `locale -a`. It blocks; the page runs it in the background.
+// load runs `locale -a`. It blocks, on purpose: it is one quick command, and
+// the page would draw an empty list for a frame otherwise.
 func (p *languagePage) load() {
 	var list []Locale
 	var err error
@@ -95,7 +96,8 @@ func (p *languagePage) filter() {
 	p.query = p.search.Editor.Text()
 	p.shown = p.shown[:0]
 	for i, l := range p.locales {
-		if q == "" || strings.Contains(strings.ToLower(l.Name), q) || strings.Contains(strings.ToLower(l.Code), q) {
+		if q == "" || strings.Contains(strings.ToLower(l.Name), q) || strings.Contains(strings.ToLower(l.Code), q) ||
+			strings.Contains(strings.ToLower(englishName(l.Code)), q) {
 			p.shown = append(p.shown, i)
 		}
 	}
@@ -136,13 +138,7 @@ func (p *languagePage) Update(gtx layout.Context) {
 		return
 	}
 	submitted := p.search.Submitted(gtx)
-	if p.search.Editor.Text() != p.query {
-		p.filter()
-		if len(p.shown) > 0 {
-			p.sel = p.shown[0]
-		}
-		p.list.Position.First, p.list.Position.Offset = 0, 0
-	}
+	p.refilter()
 	for {
 		down, ok := guikit.ArrowKey(gtx, &p.search.Editor)
 		if !ok {
@@ -158,6 +154,21 @@ func (p *languagePage) Update(gtx layout.Context) {
 	if submitted && p.sel >= 0 {
 		p.Continue()
 	}
+}
+
+// refilter filters again when the search text changed. The pick is the first
+// match; with no match there is no pick, so Continue cannot apply a locale
+// the list does not show.
+func (p *languagePage) refilter() {
+	if p.search.Editor.Text() == p.query {
+		return
+	}
+	p.filter()
+	p.sel = -1
+	if len(p.shown) > 0 {
+		p.sel = p.shown[0]
+	}
+	p.list.Position.First, p.list.Position.Offset = 0, 0
 }
 
 // pick is the locale chosen in the list, if it differs from the system's.
@@ -282,9 +293,11 @@ func (p *languagePage) Body(gtx layout.Context) layout.Dimensions {
 	return guikit.Pad(gtx, func(gtx layout.Context) layout.Dimensions {
 		kids := []layout.FlexChild{
 			layout.Rigid(u.Heading("Language", "The system language applies to every user of this computer. You can change it later in the Isotope menu.")),
-			guikit.VGap(18),
+			guikit.VGap(16),
 			layout.Rigid(col(func(gtx layout.Context) layout.Dimensions {
-				return u.Input(gtx, p.search, guikit.StBody, 38, "", nil)
+				return u.Labelled(gtx, "Search languages", nil, "", func(gtx layout.Context) layout.Dimensions {
+					return u.Input(gtx, p.search, guikit.StBody, 38, "", nil)
+				})
 			})),
 			guikit.VGap(10),
 		}

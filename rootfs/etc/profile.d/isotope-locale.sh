@@ -11,7 +11,9 @@
 # sway's and i3's start-desktop source this file themselves. It is
 # unconditional, not "unless already set": the system language is for every
 # user, and ~/.profile runs after this file, so a user can still override it.
-# The file is only read, never run.
+# The file is only read, never run. A quoted value (LANG="de_DE.UTF-8") is
+# ignored on purpose: isotope-updated never writes one, and the check below
+# accepts only plain locale-name characters.
 if [ -r /etc/locale.conf ]; then
     while IFS='=' read -r _hl_key _hl_value; do
         if [ "$_hl_key" = LANG ]; then
