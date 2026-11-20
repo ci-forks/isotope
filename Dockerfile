@@ -3149,6 +3149,89 @@ RUN meson setup buildDir ${COMMON_MESON_FLAGS} --libexecdir=lib \
       -Dadmin_group=admin -Dwtmpfile=/var/log/wtmp
 RUN DESTDIR=/accountsservice ninja -C buildDir install
 
+# libgudev: GObject bindings for libudev (the toolchain's), which UPower and
+# power-profiles-daemon find their devices with. Its tests need umockdev, which
+# is not here, so meson leaves them out. libucontext, as in the polkit and bluez
+# stages: the toolchain's libsystemd (which libudev pulls in) links it.
+FROM toolchain AS libgudev
+COPY --from=libucontext /libucontext /
+COPY --from=glib2 /glib2 /
+COPY --from=pcre2 /pcre2 /
+# renovate: datasource=gitlab-tags depName=GNOME/libgudev registryUrl=https://gitlab.gnome.org extractVersion=^(?<version>\d+(\.\d+)*)$
+ARG LIBGUDEV_VERSION=238
+RUN mkdir -p /libgudev
+WORKDIR /build
+RUN curl --retry 5 --retry-delay 3 --retry-all-errors -fL https://download.gnome.org/sources/libgudev/${LIBGUDEV_VERSION}/libgudev-${LIBGUDEV_VERSION}.tar.xz -o g.tar.xz && tar -xf g.tar.xz && rm g.tar.xz && mv libgudev-* src
+WORKDIR /build/src
+RUN pip3 install meson ninja
+RUN meson setup buildDir ${COMMON_MESON_FLAGS} -Dtests=disabled -Dintrospection=disabled -Dvapi=disabled -Dgtk_doc=false
+RUN DESTDIR=/libgudev ninja -C buildDir install
+
+# UPower: the org.freedesktop.UPower system service that reports the battery
+# and the AC adapter from /sys/class/power_supply. COSMIC's battery applet and
+# Noctalia show the battery only through it (sway's waybar and i3's
+# isotope-status read /sys themselves). It installs its D-Bus system policy
+# and activation file, upower.service, its udev rules and hwdb, and its polkit
+# action. --libexecdir=lib for the same reason as polkit (upowerd lands in
+# /usr/lib). The tests are not run: the integration tests need a running
+# daemon and python-dbusmock, and introspection is off, so meson skips them.
+FROM toolchain AS upower
+COPY --from=libucontext /libucontext /
+COPY --from=glib2 /glib2 /
+COPY --from=pcre2 /pcre2 /
+COPY --from=duktape /duktape /
+COPY --from=polkit /polkit /
+COPY --from=gettext-tools /gettext-tools /
+COPY --from=libgudev /libgudev /
+# renovate: datasource=gitlab-tags depName=upower/upower registryUrl=https://gitlab.freedesktop.org extractVersion=^v(?<version>\d+(\.\d+)*)$
+ARG UPOWER_VERSION=1.91.5
+RUN mkdir -p /upower
+WORKDIR /build
+RUN curl --retry 5 --retry-delay 3 --retry-all-errors -fL https://gitlab.freedesktop.org/upower/upower/-/archive/v${UPOWER_VERSION}/upower-v${UPOWER_VERSION}.tar.gz -o u.tar.gz && tar -xzf u.tar.gz && rm u.tar.gz && mv upower-* src
+WORKDIR /build/src
+RUN pip3 install meson ninja
+RUN meson setup buildDir ${COMMON_MESON_FLAGS} --libexecdir=lib \
+      -Dos_backend=linux -Dpolkit=enabled -Didevice=disabled -Dintrospection=disabled \
+      -Dman=false -Dgtk-doc=false -Dinstalled_tests=false -Dzshcompletiondir=no \
+      -Dsystemdsystemunitdir=/usr/lib/systemd/system
+RUN DESTDIR=/upower ninja -C buildDir install && \
+    test -x /upower/usr/lib/upowerd && \
+    test -f /upower/usr/lib/systemd/system/upower.service && \
+    test -f /upower/usr/share/dbus-1/system.d/org.freedesktop.UPower.conf && \
+    test -f /upower/usr/share/dbus-1/system-services/org.freedesktop.UPower.service && \
+    test -f /upower/usr/share/polkit-1/actions/org.freedesktop.upower.policy
+
+# power-profiles-daemon: the power profile switch (performance, balanced,
+# power saver) of COSMIC's battery applet and Noctalia, on the system bus as
+# org.freedesktop.UPower.PowerProfiles and net.hadess.PowerProfiles.
+# powerprofilesctl is a Python script that needs PyGObject, which the image
+# does not have, so it is removed; the desktops use the D-Bus interface. The
+# tests (python-dbusmock, umockdev) are off.
+FROM toolchain AS power-profiles-daemon
+COPY --from=libucontext /libucontext /
+COPY --from=glib2 /glib2 /
+COPY --from=pcre2 /pcre2 /
+COPY --from=duktape /duktape /
+COPY --from=polkit /polkit /
+COPY --from=libgudev /libgudev /
+COPY --from=upower /upower /
+# renovate: datasource=gitlab-tags depName=upower/power-profiles-daemon registryUrl=https://gitlab.freedesktop.org extractVersion=^(?<version>\d+(\.\d+)*)$
+ARG PPD_VERSION=0.30
+RUN mkdir -p /power-profiles-daemon
+WORKDIR /build
+RUN curl --retry 5 --retry-delay 3 --retry-all-errors -fL https://gitlab.freedesktop.org/upower/power-profiles-daemon/-/archive/${PPD_VERSION}/power-profiles-daemon-${PPD_VERSION}.tar.gz -o p.tar.gz && tar -xzf p.tar.gz && rm p.tar.gz && mv power-profiles-daemon-* src
+WORKDIR /build/src
+RUN pip3 install meson ninja
+RUN meson setup buildDir ${COMMON_MESON_FLAGS} --libexecdir=lib \
+      -Dtests=false -Dmanpage=disabled -Dbashcomp=disabled -Dpylint=disabled -Dgtk_doc=false \
+      -Dsystemdsystemunitdir=/usr/lib/systemd/system
+RUN DESTDIR=/power-profiles-daemon ninja -C buildDir install && \
+    rm -f /power-profiles-daemon/usr/bin/powerprofilesctl && \
+    test -x /power-profiles-daemon/usr/lib/power-profiles-daemon && \
+    test -f /power-profiles-daemon/usr/lib/systemd/system/power-profiles-daemon.service && \
+    test -f /power-profiles-daemon/usr/share/dbus-1/system.d/org.freedesktop.UPower.PowerProfiles.conf && \
+    test -f /power-profiles-daemon/usr/share/polkit-1/actions/power-profiles-daemon.policy
+
 # libsndfile + libpulse: the PulseAudio client library the audio applet, OSD
 # and settings link against. Only the client: PipeWire's pipewire-pulse is the
 # server.
@@ -5035,6 +5118,12 @@ COPY --from=flatpak /flatpak /
 # The Secret Service (gnome-keyring, with gcr 3 and p11-kit), on every variant.
 COPY --from=libgcrypt /libgcrypt /
 COPY --from=gnome-keyring /gnome-keyring /
+# Battery and power profiles on the system bus (UPower, power-profiles-daemon),
+# on every variant: COSMIC's battery applet and Noctalia read the battery only
+# from UPower. polkit, which both ask, comes with every variant's rootfs.
+COPY --from=libgudev /libgudev /
+COPY --from=upower /upower /
+COPY --from=power-profiles-daemon /power-profiles-daemon /
 # XDG MIME database — required for GLib content-type detection, which appstream/
 # libxmlb rely on to decompress the gzipped Flathub catalog (fixes flatpak search).
 COPY --from=shared-mime-info /shared-mime-info /
@@ -5203,6 +5292,13 @@ RUN chmod 1777 /tmp; \
     # never starts and bluetoothctl hangs on "waiting for bluetoothd".
     systemctl enable bluetooth.service 2>/dev/null || true; \
     ln -sf /usr/lib/systemd/system/bluetooth.service /etc/systemd/system/multi-user.target.wants/bluetooth.service; \
+    # UPower and power-profiles-daemon. Both are D-Bus activated too, but their
+    # units say WantedBy=graphical.target, which Kairos never reaches, so like
+    # bluetooth they are pulled into multi-user.target and run from boot.
+    systemctl enable upower.service power-profiles-daemon.service 2>/dev/null || true; \
+    for u in upower power-profiles-daemon; do \
+      ln -sf /usr/lib/systemd/system/$u.service /etc/systemd/system/multi-user.target.wants/$u.service; \
+    done; \
     # Docker must stay disabled in the baked filesystem: the live installer's
     # /var is itself an overlayfs, so starting dockerd there would make overlay2
     # repeatedly fail its nested-overlay check. The guarded 92_docker.yaml boot
