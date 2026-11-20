@@ -1552,12 +1552,15 @@ RUN n=https://raw.githubusercontent.com/googlefonts/noto-emoji/v${NOTO_EMOJI_VER
     grep -qx '😀 grinning face' /emoji/usr/share/isotope/emoji.txt && \
     rm -f NotoColorEmoji.ttf OFL.txt emoji-test.txt
 
-# The Isotope wallpapers, drawn at build time from theme/palette.toml by
-# tools/gen-wallpaper.py (stdlib Python, fixed dither seed, no network), so a
-# palette edit reaches them and the repository carries no multi-megabyte PNGs.
-# Every variant gets the night tiles (the desktop) and the plain night image
-# (swaylock); niri and COSMIC, whose shells have a light mode, also get the day
-# tiles. The 4K images are scaled down to fit smaller screens.
+# The desktop wallpaper is the release's (Isotope 1, Hydrogen), committed in
+# rootfs/usr/share/backgrounds/isotope/ and reached through the stable name
+# isotope-desktop-night.png; tools/wallpapers/ renders it and the build
+# wallpaper a development build points that link at instead. Drawn here at
+# build time, from theme/palette.toml by tools/gen-wallpaper.py (stdlib
+# Python, fixed dither seed, no network): the tiles, the fallback, and the
+# plain night image swaylock uses; niri and COSMIC, whose shells have a light
+# mode, also get the day tiles. The 4K images are scaled down to fit smaller
+# screens.
 FROM toolchain AS isotope-wallpapers
 COPY theme/palette.toml /build/theme/palette.toml
 COPY tools/gen-wallpaper.py /build/tools/gen-wallpaper.py
@@ -2831,8 +2834,8 @@ RUN curl --retry-all-errors -fL --retry 5 https://dl.suckless.org/st/st-${ST_VER
     sed -i -e 's|Liberation Mono:pixelsize=12:antialias=true:autohint=true|JetBrains Mono:pixelsize=15:antialias=true:autohint=true|' \
            -e 's|static int borderpx = 2;|static int borderpx = 10;|' \
            -e 's|char \*termname = "st-256color";|char *termname = "xterm-256color";|' \
-           -e 's|"gray90", /\* default foreground colour \*/|"#f2f1f5", /* default foreground colour */|' \
-           -e 's|"black", /\* default background colour \*/|"#15141c", /* default background colour */|' config.def.h && \
+           -e 's|"gray90", /\* default foreground colour \*/|"#f4f5f2", /* default foreground colour */|' \
+           -e 's|"black", /\* default background colour \*/|"#141411", /* default background colour */|' config.def.h && \
     grep -q '"JetBrains Mono:pixelsize=15:' config.def.h && \
     make -j"$(nproc)" CC=cc && install -m0755 st /x11-desktop-tools/usr/bin/st
 
@@ -5340,17 +5343,18 @@ RUN chmod 1777 /tmp; \
     # the accent came out cyan and the navy background black. Instead ly asks
     # for the console's own colours, which the kernel command line sets to the
     # Isotope palette (vt.default_* in grubmenu.cfg): the default background is
-    # colour 0 (base), bright white is 15 (text), bright blue is 12 (accent),
-    # red is 1 (error). The values are 0xSSRRGGBB: styling 0x40 is TB_BRIGHT,
-    # 0x01 is bold, and the low byte is a termbox colour (2 red, 5 blue,
-    # 8 white). No animation: decision 8 dropped the "Black Hole" one, whose
+    # colour 0 (base), bright white is 15 (text), bright yellow is 11 (brand:
+    # the login box is a brand moment, like the splash), red is 1 (error).
+    # Not bright blue: that is the terminal's own blue. The values are
+    # 0xSSRRGGBB: styling 0x40 is TB_BRIGHT, 0x01 is bold, and the low byte is
+    # a termbox colour (2 red, 4 yellow, 8 white). No animation: decision 8 dropped the "Black Hole" one, whose
     # licence is not stated.
     sed -i \
       -e 's/^animation = .*/animation = none/' \
       -e 's/^full_color = .*/full_color = false/' \
       -e 's/^bg = .*/bg = 0x00000000/' \
       -e 's/^fg = .*/fg = 0x40000008/' \
-      -e 's/^border_fg = .*/border_fg = 0x40000005/' \
+      -e 's/^border_fg = .*/border_fg = 0x40000004/' \
       -e 's/^error_fg = .*/error_fg = 0x01000002/' \
       -e 's/^error_bg = .*/error_bg = 0x00000000/' \
       -e 's/^box_title = .*/box_title = Isotope/' \
@@ -5579,6 +5583,27 @@ FROM desktop-default AS cosmic-default
 FROM desktop-default AS niri-default
 FROM ${DESKTOP}-default AS default
 
+# A development build's wallpaper: drawn from the build's commit by
+# tools/wallpapers/build_wallpaper.py, and the stable names
+# isotope-desktop-{night,day}.png pointed at it, in place of the release's
+# Hydrogen. A release build passes no WALLPAPER_COMMIT and this stage is
+# empty, so the link keeps pointing at Hydrogen. Only the pictures are made
+# here (numpy and SciPy wheels need glibc, which the Hadron base does not
+# have), so any Python image will do; the libraries are pinned in
+# tools/wallpapers/requirements.txt.
+FROM python:3.12-slim-bookworm AS build-wallpaper
+ARG WALLPAPER_COMMIT=
+COPY tools/wallpapers /w
+RUN mkdir -p /out/usr/share/backgrounds/isotope && \
+    if [ -n "${WALLPAPER_COMMIT}" ]; then \
+      pip install --no-cache-dir -r /w/requirements.txt && \
+      d=/out/usr/share/backgrounds/isotope && short="$(printf %s "${WALLPAPER_COMMIT}" | cut -c1-12)" && \
+      for mode in night day; do \
+        python3 /w/build_wallpaper.py --seed "${WALLPAPER_COMMIT}" --mode "$mode" --out "$d" && \
+        ln -sf "isotope-build-${short}-${mode}-3840x2160.png" "$d/isotope-desktop-${mode}.png"; \
+      done && ls -l "$d"; \
+    fi
+
 
 # ===========================================================================
 # Kairos init layer — makes the image bootable/installable.
@@ -5594,6 +5619,8 @@ FROM ${KAIROS_INIT_IMAGE} AS kairos-init
 
 FROM default AS kairos
 ARG MODEL=generic
+# The development build's wallpaper, when there is one (see build-wallpaper).
+COPY --from=build-wallpaper /out/ /
 ARG TRUSTED_BOOT=false
 ARG VERSION=v0.0.0
 ARG FIPS=no-fips
