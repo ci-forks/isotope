@@ -129,7 +129,7 @@ if [ "$DESKTOP" = cosmic ]; then
         "own=\$(sed -n 's/^id //p' $L/layout.kdl); test -n \"\$own\"; for f in /usr/share/cosmic-layouts/*/layout.kdl; do [ \$f = $L/layout.kdl ] && continue; o=\$(sed -n 's/^id //p' \$f); [ \"\$own\" -lt \"\$o\" ] || exit 1; done; test \$(ls -d /usr/share/cosmic-layouts/*/ | wc -l) -gt 1"
 fi
 
-# --- COSMIC top bar: the Isotope mark and the focused app (applets/) --------
+# --- COSMIC top bar: the Isotope mark, the focused app, quick settings (applets/)
 if [ "$DESKTOP" = cosmic ]; then
     B=/usr/bin/isotope-applet-mark
     check "isotope-applet-mark is installed and links (ldd clean)" \
@@ -144,6 +144,27 @@ if [ "$DESKTOP" = cosmic ]; then
         "grep -qa isotope-menu $B && test -x /usr/bin/isotope-menu"
     check "the top bar starts with the mark, then the workspaces" \
         "grep -q '^Some((\[\"io.kairos.Isotope.Mark\", \"com.system76.CosmicPanelWorkspacesButton\"' /usr/share/cosmic/com.system76.CosmicPanel.Panel/v1/plugins_wings"
+    # The quick settings (applets/isotope-quick) in place of the stock
+    # network, Bluetooth, audio and power applets; battery and time stay.
+    Q=/usr/bin/isotope-applet-quick
+    check "isotope-applet-quick is installed and links (ldd clean)" \
+        "test -x $Q && ldd $Q >/dev/null && ! ldd $Q 2>&1 | grep -q 'not found'"
+    check "isotope-applet-quick is built with the patched libcosmic (window_controls_left)" \
+        "grep -qa window_controls_left $Q"
+    check "the quick settings' icon is a symbolic icon in hicolor" \
+        "grep -q '<svg' /usr/share/icons/hicolor/scalable/apps/io.kairos.Isotope.QuickSettings-symbolic.svg"
+    check "the quick settings' applet entry runs isotope-applet-quick, a panel applet" \
+        "D=/usr/share/applications/io.kairos.Isotope.QuickSettings.desktop; grep -qx 'Exec=isotope-applet-quick' \$D && grep -qx 'X-CosmicApplet=true' \$D"
+    check "the quick settings open COSMIC Settings' pages and cosmic-osd, which are on the image" \
+        "grep -qa wireless $Q && grep -qa cosmic-osd $Q && test -x /usr/bin/cosmic-settings && test -x /usr/bin/cosmic-osd"
+    check "the top bar's right side is status area, notifications, quick settings, battery, time" \
+        "grep -qF '[\"com.system76.CosmicAppletStatusArea\", \"com.system76.CosmicAppletNotifications\", \"io.kairos.Isotope.QuickSettings\", \"com.system76.CosmicAppletBattery\", \"com.system76.CosmicAppletTime\"]' /usr/share/cosmic/com.system76.CosmicPanel.Panel/v1/plugins_wings"
+    # The stock applets the quick settings replace stay installed, so a user
+    # can add them back.
+    for id in Network Bluetooth Audio Power; do
+        check "the stock com.system76.CosmicApplet$id stays installed" \
+            "test -f /usr/share/applications/com.system76.CosmicApplet$id.desktop"
+    done
     # cosmic-panel starts an applet only if it finds <id>.desktop; a missing one
     # leaves a silent gap in the bar or the dock.
     check "every applet in the Panel and Dock plugins_* has a .desktop file" \

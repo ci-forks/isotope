@@ -5157,17 +5157,19 @@ RUN --mount=type=cache,id=cosmic-cargo-registry,target=/usr/local/cargo/registry
     test "$(cat /cosmic-theme/usr/share/cosmic/com.system76.CosmicTheme.Mode/v1/is_dark)" = true
 
 # Isotope's own COSMIC panel applets: applets/, a Cargo workspace (see
-# applets/Cargo.toml and applets/justfile). Today the Isotope mark and the
-# focused app at the left of the top bar (isotope-applet-mark, panel ID
-# io.kairos.Isotope.Mark). Built like a stock COSMIC component, through
-# cosmic-build's directory mode, so the libcosmic patches apply to it and every
-# installed ELF is ldd-checked. Its libcosmic is the rev cosmic-applets pins
-# (test/cosmic-build/test-cosmic-build-patches.sh checks that rev is one the
-# patches are kept for). It builds its dependency graph itself: in release CI
+# applets/Cargo.toml and applets/justfile): the Isotope mark and the focused
+# app at the left of the top bar (isotope-applet-mark, panel ID
+# io.kairos.Isotope.Mark) and the quick settings at the right
+# (isotope-applet-quick, io.kairos.Isotope.QuickSettings). Built like a stock
+# COSMIC component, through cosmic-build's directory mode, so the libcosmic
+# patches apply to them and every installed ELF is ldd-checked. Their
+# libcosmic is the rev cosmic-applets pins (test/cosmic-build/
+# test-cosmic-build-patches.sh checks that rev is one the patches are kept
+# for). It builds its dependency graph itself: in release CI
 # the COSMIC halves come prebuilt, and locally the neighbouring stages empty
 # the shared cosmic-target cache after each component.
 # The unit tests run first, in their own target dir; one of them compares the
-# applet's icon with docs/assets/isotope-mark.svg at its path in the repo, so
+# mark's icon with docs/assets/isotope-mark.svg at its path in the repo, so
 # that file is copied to the same place relative to applets/.
 FROM cosmic-build AS isotope-applets
 # renovate: datasource=github-tags depName=pop-os/cosmic-session extractVersion=^epoch-(?<version>\d+(\.\d+)*)$
@@ -5182,7 +5184,11 @@ RUN --mount=type=cache,id=cosmic-cargo-registry,target=/usr/local/cargo/registry
     test -x /cosmic/usr/bin/isotope-applet-mark && \
     grep -qa window_controls_left /cosmic/usr/bin/isotope-applet-mark && \
     test -f /cosmic/usr/share/applications/io.kairos.Isotope.Mark.desktop && \
-    test -f /cosmic/usr/share/icons/hicolor/scalable/apps/io.kairos.Isotope.Mark-symbolic.svg
+    test -f /cosmic/usr/share/icons/hicolor/scalable/apps/io.kairos.Isotope.Mark-symbolic.svg && \
+    test -x /cosmic/usr/bin/isotope-applet-quick && \
+    grep -qa window_controls_left /cosmic/usr/bin/isotope-applet-quick && \
+    test -f /cosmic/usr/share/applications/io.kairos.Isotope.QuickSettings.desktop && \
+    test -f /cosmic/usr/share/icons/hicolor/scalable/apps/io.kairos.Isotope.QuickSettings-symbolic.svg
 
 FROM common-config AS cosmic-config
 COPY rootfs-cosmic/ /

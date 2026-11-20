@@ -30,4 +30,4 @@ _install_applet id dir bin:
     find {{ dir }}/data/icons -type f | while read -r f; do install -Dm0644 "$f" "{{ iconsdir }}/${f#{{ dir }}/data/icons/}"; done
 
 # Installs every applet under rootdir.
-install: (_install_applet 'io.kairos.Isotope.Mark' 'isotope-mark' 'isotope-applet-mark')
+install: (_install_applet 'io.kairos.Isotope.Mark' 'isotope-mark' 'isotope-applet-mark') (_install_applet 'io.kairos.Isotope.QuickSettings' 'isotope-quick' 'isotope-applet-quick')
