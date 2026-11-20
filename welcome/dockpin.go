@@ -55,5 +55,29 @@ func PinToCosmicDock(home, appID string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(path, []byte(out), 0o644)
+	// Write a temporary file and rename it over the list, so the dock
+	// never reads half a file.
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".favorites-*")
+	if err != nil {
+		return err
+	}
+	if _, err := tmp.WriteString(out); err != nil {
+		tmp.Close()
+		os.Remove(tmp.Name())
+		return err
+	}
+	if err := tmp.Chmod(0o644); err != nil {
+		tmp.Close()
+		os.Remove(tmp.Name())
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmp.Name())
+		return err
+	}
+	if err := os.Rename(tmp.Name(), path); err != nil {
+		os.Remove(tmp.Name())
+		return err
+	}
+	return nil
 }

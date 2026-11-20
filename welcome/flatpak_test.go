@@ -2,7 +2,6 @@ package main
 
 import (
 	"reflect"
-	"syscall"
 	"testing"
 )
 
@@ -103,5 +102,4 @@ func TestInstallerDetaches(t *testing.T) {
 	if cmd.SysProcAttr == nil || !cmd.SysProcAttr.Setsid {
 		t.Fatalf("SysProcAttr = %+v, want Setsid", cmd.SysProcAttr)
 	}
-	var _ = syscall.SysProcAttr{}
 }

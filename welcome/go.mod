@@ -5,7 +5,6 @@ go 1.25
 require (
 	gioui.org v0.10.3
 	github.com/godbus/dbus/v5 v5.2.2
-	github.com/godbus/dbus/v5 v5.2.2
 	github.com/kairos-community/isotope/guikit v0.0.0-00010101000000-000000000000
 )
 
