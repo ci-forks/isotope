@@ -239,3 +239,68 @@ func TestAppID(t *testing.T) {
 		t.Fatalf("app.ID = %q", app.ID)
 	}
 }
+
+// installingUI is the full flow of sway on page p, with a batch of apps
+// installing in the background.
+func installingUI(t *testing.T, p PageID) (*UI, *recorder) {
+	t.Helper()
+	u, r := newRecorded(NewFlow(Sway), Sway)
+	u.appList = loadApps(t)
+	u.installer = NewInstaller(online(), u.appList)
+	u.installer.setProgress(1, 5, "org.videolan.VLC")
+	to(u, p)
+	return u, r
+}
+
+// I1: Log out on Ready ends the session, which kills the installs. While
+// they run, Log out does nothing; once they are done it logs out.
+func TestLogOutWaitsForTheInstalls(t *testing.T) {
+	u, r := installingUI(t, PReady)
+	u.flow.Outcome.LanguageChanged = "Deutsch (Deutschland)"
+	rp := u.page().(*readyPage)
+	if !rp.logoutBlocked() {
+		t.Fatal("Log out must be disabled while apps install")
+	}
+	rp.logOut()
+	if r.logouts != 0 || r.closed {
+		t.Fatalf("logouts %d, closed %v: Log out ran during the installs", r.logouts, r.closed)
+	}
+	wantStamps(t, r)
+	u.installer.setFinished()
+	if rp.logoutBlocked() {
+		t.Fatal("Log out must be enabled once the installs are done")
+	}
+	rp.logOut()
+	if r.logouts != 1 || !r.closed {
+		t.Fatalf("logouts %d, closed %v", r.logouts, r.closed)
+	}
+	wantStamps(t, r, StampDone)
+}
+
+// I1: setup skipped (or the window closed) while apps still install
+// leaves the reminder, so the next login offers the apps again.
+func TestSkipSetupWhileInstallingLeavesAppsPending(t *testing.T) {
+	u, r := installingUI(t, PShortcuts)
+	r.requestClose()
+	u.answerSkip(true)
+	wantStamps(t, r, StampAppsPending)
+	if !r.closed {
+		t.Fatal("not closed")
+	}
+}
+
+func TestForcedCloseWhileInstallingLeavesAppsPending(t *testing.T) {
+	u, r := installingUI(t, PReady)
+	u.Closed()
+	wantStamps(t, r, StampAppsPending)
+}
+
+// Apps skipped offline, then setup skipped on a later page: the reminder
+// the Apps skip asked for stays.
+func TestSkipSetupAfterAnOfflineAppsSkipKeepsTheReminder(t *testing.T) {
+	u, rec, _ := appsUI(t, NewFlow(Sway), offline())
+	u.skipPage()
+	rec.requestClose()
+	u.answerSkip(true)
+	wantStamps(t, rec, StampAppsPending)
+}

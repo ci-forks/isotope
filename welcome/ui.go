@@ -270,9 +270,10 @@ func (u *UI) prev() {
 
 // skipPage is Skip: the page's setting is left as it was.
 func (u *UI) skipPage() {
-	// Apps skipped for lack of a network: the next login reminds. A page
+	// Apps skipped for lack of a network, or before the network check
+	// answered (it counts as offline): the next login reminds. A page
 	// opened alone writes no stamp, so it leaves no reminder either.
-	if ap, ok := u.page().(*appsPage); ok && ap.unavailable() && len(u.flow.Pages()) > 1 {
+	if ap, ok := u.page().(*appsPage); ok && (ap.unavailable() || ap.checking()) && len(u.flow.Pages()) > 1 {
 		u.appsPending = true
 	}
 	u.flow.Skip()
@@ -294,6 +295,23 @@ func (u *UI) endStamp() Stamp {
 		return StampAppsPending
 	}
 	return StampDone
+}
+
+// skipStamp is the stamp of setup skipped or the window closed before the
+// end. It asks the next login to remind about the apps when they are not
+// done: Apps was skipped offline, the network check had not answered yet,
+// or a batch is still installing (logging out would kill it).
+func (u *UI) skipStamp() Stamp {
+	if len(u.flow.Pages()) > 1 && (u.appsPending || u.installing() || u.appsChecking()) {
+		return StampAppsPending
+	}
+	return StampSkipped
+}
+
+// appsChecking: the Apps page is still asking whether there is a network.
+func (u *UI) appsChecking() bool {
+	ap, ok := u.pages[PApps].(*appsPage)
+	return ok && ap.checking()
 }
 
 // stamp writes the stamp s, once.
@@ -335,7 +353,7 @@ func (u *UI) askSkip() {
 func (u *UI) answerSkip(skip bool) {
 	u.confirming = false
 	if skip {
-		u.finish(StampSkipped)
+		u.finish(u.skipStamp())
 		return
 	}
 	u.focus = &u.cont
@@ -355,7 +373,7 @@ func (u *UI) CloseRequested() (keep bool) {
 
 // Closed is the window going away. Before the stamp is written that is a
 // skip: a close that came without a request the UI could keep.
-func (u *UI) Closed() { u.stamp(StampSkipped) }
+func (u *UI) Closed() { u.stamp(u.skipStamp()) }
 
 // scrolled lays w in the page's padding, in a list that scrolls when w is
 // taller than the column (a large scale, a small screen). w gets at least

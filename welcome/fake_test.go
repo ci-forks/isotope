@@ -87,3 +87,11 @@ func (in *Installer) setProgress(done, total int, current string) {
 	in.running, in.started = true, true
 	in.done, in.total, in.current = done, total, current
 }
+
+// setFinished makes the installer look like its batch has ended.
+func (in *Installer) setFinished() {
+	in.mu.Lock()
+	defer in.mu.Unlock()
+	in.running, in.started = false, true
+	in.done, in.current = in.total, ""
+}

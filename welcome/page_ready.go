@@ -43,10 +43,18 @@ func (p *readyPage) Update(gtx layout.Context) {
 	}
 }
 
+// logoutBlocked: apps are still installing. Ending the session would kill
+// the installs, so Log out waits for them.
+func (p *readyPage) logoutBlocked() bool { return p.u.installing() }
+
 // logOut writes the stamp, then ends the session. The window closes only
-// when the logout started; if it did not, it stays with the error.
+// when the logout started; if it did not, it stays with the error. While
+// apps install it does nothing (the button is disabled).
 func (p *readyPage) logOut() {
 	u := p.u
+	if p.logoutBlocked() {
+		return
+	}
 	p.logoutErr = ""
 	u.stamp(u.endStamp())
 	if u.hooks.Logout != nil {
@@ -122,6 +130,9 @@ func (p *readyPage) languageBox(gtx layout.Context) layout.Dimensions {
 					}),
 					layout.Rigid(layout.Spacer{Width: 16}.Layout),
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						if p.logoutBlocked() {
+							return u.Button(gtx, &p.logout, guikit.ButtonSecondary, "Installing apps…", false)
+						}
 						return u.Button(gtx, &p.logout, guikit.ButtonSecondary, "Log out", true)
 					}),
 				)

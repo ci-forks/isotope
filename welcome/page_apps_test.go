@@ -210,3 +210,39 @@ func TestAppsOnReadyBarWhileInstalling(t *testing.T) {
 }
 
 func contains(l []PageID, p PageID) bool { return indexOf(l, p) >= 0 }
+
+// checking is the Apps page still asking nm-online (up to 5 s offline).
+func checking(t *testing.T) (*UI, *recorder, *appsPage) {
+	t.Helper()
+	u, rec := newRecorded(NewFlow(Sway), Sway)
+	u.hooks.Runner = offline()
+	u.appList = loadApps(t)
+	to(u, PApps)
+	p := u.page().(*appsPage)
+	p.started = true
+	p.status = appsChecking
+	return u, rec, p
+}
+
+// I2: Skip while the page still says "Checking…" counts as offline.
+func TestSkipWhileCheckingSetsAppsPending(t *testing.T) {
+	u, rec, _ := checking(t)
+	u.skipPage()
+	if !u.appsPending {
+		t.Fatal("Skip during the network check must mark apps pending")
+	}
+	to(u, PReady)
+	u.next()
+	wantStamps(t, rec, StampAppsPending)
+}
+
+// I2: so does a close ("Skip setup?" → Skip setup) during the check.
+func TestCloseWhileCheckingLeavesAppsPending(t *testing.T) {
+	u, rec, _ := checking(t)
+	rec.requestClose()
+	u.answerSkip(true)
+	wantStamps(t, rec, StampAppsPending)
+	u, rec, _ = checking(t)
+	u.Closed()
+	wantStamps(t, rec, StampAppsPending)
+}

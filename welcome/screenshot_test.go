@@ -115,6 +115,15 @@ var pages = []struct {
 		u.flow.Outcome.LanguageChanged = "Deutsch (Deutschland)"
 		to(u, PReady)
 	}},
+	// I1: Log out waits while the apps install (it would kill them).
+	{"ready-language-installing", Cosmic, 1, sizes, func(u *UI) {
+		applied(u)
+		u.flow.Outcome.LanguageChanged = "Deutsch (Deutschland)"
+		u.appList = apps
+		u.installer = NewInstaller(online(), u.appList)
+		u.installer.setProgress(1, 5, "org.videolan.VLC")
+		to(u, PReady)
+	}},
 	{"ready-apps-failed", Sway, 1, sizes, func(u *UI) {
 		o := &u.flow.Outcome
 		o.Applied = []PageID{PLanguage, PAppearance, PApps}

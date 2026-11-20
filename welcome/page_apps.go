@@ -113,6 +113,14 @@ func (p *appsPage) unavailable() bool {
 	return p.status == appsOffline || p.status == appsNoFlathub
 }
 
+// checking: the first answer about the network is not in yet (nm-online
+// waits up to 5 s when offline).
+func (p *appsPage) checking() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.status == appsChecking
+}
+
 // selected are the ticked apps in the list's order, the browser first.
 func (p *appsPage) selected() []string {
 	var ids []string
