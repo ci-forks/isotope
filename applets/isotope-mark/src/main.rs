@@ -162,6 +162,10 @@ impl cosmic::Application for Mark {
             .height(Length::Fixed(f32::from(icon_h)));
 
         let content: Element<'_, Message> = if applet.is_horizontal() {
+            // As the stock time applet does: a row as tall as an icon button
+            // (an empty space of that height), its items centred in it, in a
+            // button padded only along the bar. A fixed-height button would
+            // put its content at the top.
             let name = self.name();
             let mut row = widget::row::with_capacity(2)
                 .push(mark)
@@ -170,9 +174,9 @@ impl cosmic::Application for Mark {
             if !name.is_empty() {
                 row = row.push(applet.text(name).font(cosmic::font::semibold()));
             }
-            widget::button::custom(row)
+            let tall = widget::space::vertical().height(Length::Fixed(f32::from(icon_h + 2 * minor_pad)));
+            widget::button::custom(iced::widget::row![row, tall].align_y(Alignment::Center))
                 .padding([0, major_pad])
-                .height(Length::Fixed(f32::from(icon_h + 2 * minor_pad)))
                 .class(theme::Button::AppletIcon)
                 .on_press_down(Message::Press)
                 .into()
@@ -215,5 +219,47 @@ mod tests {
         assert_eq!(shapes(mark), shapes(source));
         assert_eq!(shapes(mark).len(), 5);
         assert!(!mark.contains("fill"), "a symbolic icon takes the panel's colour");
+    }
+
+    /// The numbers after `attr="` in an SVG, e.g. a path's coordinates.
+    fn numbers(svg: &str, attr: &str) -> Vec<f32> {
+        let start = svg.find(&format!(" {attr}=\"")).unwrap() + attr.len() + 3;
+        let value = &svg[start..start + svg[start..].find('"').unwrap()];
+        value
+            .split(|c: char| !(c.is_ascii_digit() || c == '.'))
+            .filter(|n| !n.is_empty())
+            .map(|n| n.parse().unwrap())
+            .collect()
+    }
+
+    #[test]
+    fn mark_fills_its_icon_like_a_stock_symbolic_icon() {
+        // The stock 16 px symbolic icons reach to about a pixel of their
+        // edges. The mark's paths span 68-444 x 33-478 of the 512 tray
+        // canvas; the icon's square viewBox is cropped to them so the mark
+        // in the bar is as tall as its neighbours.
+        let mark = std::str::from_utf8(super::MARK_SVG).unwrap();
+        let view = numbers(mark, "viewBox");
+        assert_eq!(view.len(), 4);
+        assert_eq!(view[2], view[3], "square");
+        let (mut lo_x, mut hi_x, mut lo_y, mut hi_y) = (f32::MAX, f32::MIN, f32::MAX, f32::MIN);
+        let mut rest = mark;
+        while let Some(i) = rest.find(" d=\"") {
+            for xy in numbers(rest, "d").chunks(2) {
+                lo_x = lo_x.min(xy[0]);
+                hi_x = hi_x.max(xy[0]);
+                lo_y = lo_y.min(xy[1]);
+                hi_y = hi_y.max(xy[1]);
+            }
+            rest = &rest[i + 4..];
+        }
+        assert!(lo_x >= view[0] && lo_y >= view[1], "the mark is inside the viewBox");
+        assert!(hi_x <= view[0] + view[2] && hi_y <= view[1] + view[3]);
+        let px = 16.0 / view[3];
+        assert!((hi_y - lo_y) * px >= 15.0, "{} px tall at 16 px", (hi_y - lo_y) * px);
+        // Centred: the margins differ by under half a pixel.
+        let (top, bottom) = (lo_y - view[1], view[1] + view[3] - hi_y);
+        let (left, right) = (lo_x - view[0], view[0] + view[2] - hi_x);
+        assert!((top - bottom).abs() * px < 0.5 && (left - right).abs() * px < 0.5);
     }
 }

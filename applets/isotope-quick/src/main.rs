@@ -292,28 +292,30 @@ impl cosmic::Application for Quick {
                 .height(Length::Fixed(f32::from(h)))
         };
         let icons = [state::net_icon(&self.state), state::volume_icon(&self.state)];
+        // As the stock time applet does: the icons in a row (a column on a
+        // vertical bar) as thick as an icon button, made so by an empty
+        // space, and centred in it; the button is padded only along the
+        // bar. A button of fixed thickness puts its content at its start.
         let content: Element<'_, Message> = if applet.is_horizontal() {
-            button::custom(
-                row(icons.map(|i| panel_icon(i).into()))
-                    .spacing(gap)
-                    .align_y(Alignment::Center),
-            )
-            .padding([0, major])
-            .height(Length::Fixed(f32::from(h + 2 * minor)))
-            .class(theme::Button::AppletIcon)
-            .on_press_down(Message::TogglePopup)
-            .into()
+            let items = row(icons.map(|i| panel_icon(i).into()))
+                .spacing(gap)
+                .align_y(Alignment::Center);
+            let tall = widget::space::vertical().height(Length::Fixed(f32::from(h + 2 * minor)));
+            button::custom(row![items, tall].align_y(Alignment::Center))
+                .padding([0, major])
+                .class(theme::Button::AppletIcon)
+                .on_press_down(Message::TogglePopup)
+                .into()
         } else {
-            button::custom(
-                column(icons.map(|i| panel_icon(i).into()))
-                    .spacing(gap)
-                    .align_x(Alignment::Center),
-            )
-            .padding([major, 0])
-            .width(Length::Fixed(f32::from(w + 2 * minor)))
-            .class(theme::Button::AppletIcon)
-            .on_press_down(Message::TogglePopup)
-            .into()
+            let items = column(icons.map(|i| panel_icon(i).into()))
+                .spacing(gap)
+                .align_x(Alignment::Center);
+            let wide = widget::space::horizontal().width(Length::Fixed(f32::from(w + 2 * minor)));
+            button::custom(column![items, wide].align_x(Alignment::Center))
+                .padding([major, 0])
+                .class(theme::Button::AppletIcon)
+                .on_press_down(Message::TogglePopup)
+                .into()
         };
         autosize::autosize(content, AUTOSIZE_MAIN_ID.clone()).into()
     }
