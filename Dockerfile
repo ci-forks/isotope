@@ -5811,8 +5811,9 @@ RUN systemctl enable isotope-backup.timer isotope-restore-finish.service && \
 FROM desktop-default AS sway-default
 FROM desktop-default AS i3-default
 FROM desktop-default AS cosmic-default
-# The compiled schemas carry COSMIC's own override: GTK's window buttons on the
-# left, as the patched libcosmic puts them (patches/cosmic/libcosmic).
+# The compiled schemas carry COSMIC's own override (GTK's window buttons on the
+# left). This proves the default is compiled, not that any app follows it:
+# Flatpak GTK apps do not read it on COSMIC (see AGENTS.md, The Isotope look).
 RUN test "$(gsettings get org.gnome.desktop.wm.preferences button-layout)" = "'close,minimize,maximize:'"
 FROM desktop-default AS niri-default
 FROM ${DESKTOP}-default AS default

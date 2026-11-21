@@ -120,7 +120,22 @@ puts the overlay on libcosmic's own `ThemeBuilder` and writes the dark
 and light themes and `Mode` (dark) under `/usr/share/cosmic`. So COSMIC
 computes the derived colours itself. Do not hand-edit the theme entries
 in the image. Users who already have a theme keep it. To get the new
-look they choose Reset to default in COSMIC Settings > Appearance.
+look they remove `~/.config/cosmic/com.system76.CosmicTheme.Dark*` and
+`~/.config/cosmic/com.system76.CosmicTheme.Light*` (the theme and its
+builder directories), then log out and in. Do not tell them to use Reset to
+default in COSMIC Settings > Appearance: it writes libcosmic's stock theme
+into `~/.config/cosmic` and so replaces the Isotope look with stock COSMIC.
+
+The left window buttons come from a libcosmic patch and the CosmicTk key
+`window_controls_left`. To turn them off, put `false` in
+`~/.config/cosmic/com.system76.CosmicTk/v1/window_controls_left`.
+
+Known limit: on COSMIC, Flatpak GTK apps get neither the left window buttons
+nor the Conflux icon theme through the portal, because
+xdg-desktop-portal-cosmic does not serve those keys. The gsettings override
+(`91_isotope-cosmic.gschema.override`) is only the default for host GTK apps.
+`check-look.sh` and the Dockerfile assertion prove that the default is
+compiled, not that an app follows it.
 
 `patches/cosmic/` holds Isotope's changes to COSMIC sources:
 `<repo>/*.patch` per repo and `libcosmic/*.patch` for every libcosmic
@@ -135,7 +150,9 @@ directory mode, so the libcosmic patches apply to it. Its `Cargo.lock`
 must stay on the libcosmic revision that cosmic-applets pins (see the
 comment in `applets/Cargo.toml`). The panel layout is
 `rootfs-cosmic/usr/share/cosmic-layouts/isotope`, which is also the
-system default. Isotope Welcome applies it as "Isotope".
+system default. Isotope Welcome applies it as "Isotope". `applets/` is
+GPL-3.0-only (as the greeter patch is), because it builds on COSMIC's GPL
+code; the rest of the repository is Apache-2.0.
 
 The icon theme is Conflux, installed whole from its pinned upstream
 commit in the `icon-themes` stage, with its GPL licence in

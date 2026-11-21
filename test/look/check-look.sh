@@ -127,7 +127,7 @@ if [ "$DESKTOP" = cosmic ]; then
     check "every ELF that reads CosmicTk knows window_controls_left (patched libcosmic)" \
         "n=0; for f in \$(find /usr/bin /usr/libexec -type f 2>/dev/null); do head -c4 \$f | grep -q ELF || continue; grep -qa com.system76.CosmicTk \$f || continue; n=\$((n+1)); grep -qa window_controls_left \$f || { echo \$f; exit 1; }; done; [ \$n -gt 0 ]"
     check "CosmicTk window_controls_left is true" "grep -qx true $K/window_controls_left"
-    check "gsettings button-layout puts the window buttons on the left" \
+    check "gsettings button-layout default (compiled) is the left layout; not proof that apps follow it" \
         "test \"\$(gsettings get org.gnome.desktop.wm.preferences button-layout)\" = \"'close,minimize,maximize:'\""
     P=/usr/share/cosmic/com.system76.CosmicComp/v1
     # The spec's fallback for tiling: a thin outline on the focused window, in
