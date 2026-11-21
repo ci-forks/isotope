@@ -143,7 +143,11 @@ if [ "$DESKTOP" = cosmic ]; then
     check "the mark opens isotope-menu, which is on the image" \
         "grep -qa isotope-menu $B && test -x /usr/bin/isotope-menu"
     check "the top bar starts with the mark, then the workspaces" \
-        "grep -q '^Some((\[\"io.kairos.Isotope.Mark\", \"com.system76.CosmicPanelWorkspacesButton\"' /usr/share/cosmic/com.system76.CosmicPanel.Panel/v1/plugins_wings"
+        "grep -q '^Some((\[\"io.kairos.Isotope.Mark\", \"com.system76.CosmicAppletWorkspaces\"\]' /usr/share/cosmic/com.system76.CosmicPanel.Panel/v1/plugins_wings"
+    # The workspaces themselves (cosmic-applet-workspaces' numbered
+    # indicators), not the stock "Workspaces" button that opens the overview.
+    check "the top bar has no Workspaces button" \
+        "! grep -q CosmicPanelWorkspacesButton /usr/share/cosmic/com.system76.CosmicPanel.Panel/v1/plugins_wings"
     # The quick settings (applets/isotope-quick) in place of the stock
     # network, Bluetooth, audio and power applets; battery and time stay.
     Q=/usr/bin/isotope-applet-quick
