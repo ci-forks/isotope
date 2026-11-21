@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -179,4 +180,42 @@ func TestFollowSeesLaterChange(t *testing.T) {
 	}
 	cancel()
 	t.Fatal("wallpaper did not follow the mode change")
+}
+
+func TestFollowSurvivesRemovedModeDir(t *testing.T) {
+	home, sys := t.TempDir(), t.TempDir()
+	in := fixtureBackground(t)
+	writeCfg(t, sys, "com.system76.CosmicBackground", "all", in)
+	writeCfg(t, sys, "com.system76.CosmicTheme.Mode", "is_dark", "true")
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- runWallpaperFollow(ctx, home, sys) }()
+	time.Sleep(300 * time.Millisecond)
+	// The user removes the theme config, as when resetting the look.
+	cosmic := filepath.Join(home, ".config", "cosmic")
+	// The helper re-creates the directory as soon as it goes, so removing it
+	// can race with that; a second rm sweeps what came back.
+	modeDir := filepath.Join(cosmic, "com.system76.CosmicTheme.Mode")
+	if err := os.RemoveAll(modeDir); err != nil {
+		time.Sleep(200 * time.Millisecond)
+		_ = os.RemoveAll(modeDir)
+	}
+	time.Sleep(500 * time.Millisecond)
+	writeCfg(t, cosmic, "com.system76.CosmicTheme.Mode", "is_dark", "false")
+	p := filepath.Join(cosmic, "com.system76.CosmicBackground/v1/all")
+	for i := 0; i < 50; i++ {
+		if b, _ := os.ReadFile(p); strings.Contains(string(b), wpDay) {
+			cancel()
+			if err := <-done; err != nil {
+				t.Fatal(err)
+			}
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	cancel()
+	runErr := <-done
+	ls, _ := exec.Command("find", home).CombinedOutput()
+	t.Fatalf("no follow; run error %v; tree:\n%s", runErr, ls)
 }

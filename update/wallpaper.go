@@ -5,11 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
+	"unsafe"
 
 	"golang.org/x/sys/unix"
 )
@@ -154,16 +156,30 @@ func runWallpaperFollow(ctx context.Context, home, sysDir string) error {
 		return nil
 	}
 	dir := filepath.Join(home, ".config", "cosmic", themeModeName, "v1")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
 	fd, err := unix.InotifyInit1(unix.IN_CLOEXEC | unix.IN_NONBLOCK)
 	if err != nil {
 		return err
 	}
 	defer unix.Close(fd)
-	if _, err := unix.InotifyAddWatch(fd, dir,
-		unix.IN_CLOSE_WRITE|unix.IN_MOVED_TO|unix.IN_CREATE|unix.IN_DELETE|unix.IN_MOVED_FROM); err != nil {
+	// watch (re-)creates the directory and adds the watch. It runs again when
+	// the kernel drops the watch, because the directory was removed or moved
+	// (for example by a user resetting their COSMIC theme config).
+	watch := func() error {
+		var err error
+		// The directory can vanish again between the mkdir and the watch.
+		for try := 0; try < 5; try++ {
+			if err = os.MkdirAll(dir, 0o755); err == nil {
+				_, err = unix.InotifyAddWatch(fd, dir,
+					unix.IN_CLOSE_WRITE|unix.IN_MOVED_TO|unix.IN_CREATE|unix.IN_DELETE|unix.IN_MOVED_FROM|
+						unix.IN_DELETE_SELF|unix.IN_MOVE_SELF)
+			}
+			if err == nil || !errors.Is(err, fs.ErrNotExist) {
+				return err
+			}
+		}
+		return err
+	}
+	if err := watch(); err != nil {
 		return err
 	}
 	buf := make([]byte, 4096)
@@ -176,16 +192,39 @@ func runWallpaperFollow(ctx context.Context, home, sysDir string) error {
 		if n <= 0 {
 			continue
 		}
-		if _, err := unix.Read(fd, buf); err != nil {
+		got, err := unix.Read(fd, buf)
+		if err != nil {
 			if err == unix.EAGAIN || err == unix.EINTR {
 				continue
 			}
 			return err
 		}
+		if inotifyLostWatch(buf[:got]) {
+			if err := watch(); err != nil {
+				return err
+			}
+		}
 		time.Sleep(50 * time.Millisecond) // let a rename burst settle
 		pass()
 	}
 	return nil
+}
+
+// inotifyLostWatch reports whether the events say the watched directory is
+// gone or moved, so the watch is dead or points at the wrong place.
+func inotifyLostWatch(buf []byte) bool {
+	for len(buf) >= unix.SizeofInotifyEvent {
+		ev := (*unix.InotifyEvent)(unsafe.Pointer(&buf[0]))
+		if ev.Mask&(unix.IN_IGNORED|unix.IN_DELETE_SELF|unix.IN_MOVE_SELF) != 0 {
+			return true
+		}
+		size := unix.SizeofInotifyEvent + int(ev.Len)
+		if size > len(buf) {
+			break
+		}
+		buf = buf[size:]
+	}
+	return false
 }
 
 func cmdWallpaperFollow(stderr io.Writer) int {
