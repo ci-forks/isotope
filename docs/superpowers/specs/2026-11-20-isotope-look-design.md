@@ -184,6 +184,10 @@ In both builders:
   windows also get depth). If removing the hint makes the focused window
   hard to find in tiling mode, keep a thin hint in a neutral colour instead
   of the accent; say so in the PR.
+  (Taken: the first VM session showed the focused tiled window was hard to
+  find, so CosmicComp `active_hint` is true with a 2 px hint in the
+  palette's `dim`, the ThemeBuilder's `window_hint`, set by
+  tools/gen-theme.py.)
 - Gaps: the mock's spacing between tiled windows (stock is 8).
 
 CosmicTk (v1): `icon_theme` "Conflux", `interface_font` Inter Variable,

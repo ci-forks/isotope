@@ -98,6 +98,19 @@ if [ "$DESKTOP" = cosmic ]; then
         check "COSMIC $M theme accent is the Isotope accent #$want" \
             "grep -qi 'base: \"#${want}ff\"' $T.$M/v2/accent"
     done
+    # The focused window's outline: 1 or 2 px, in the palette's dim (a neutral).
+    # The builder keeps it as hex; the computed theme as RGB floats, so there
+    # only its presence is checked.
+    hint_of() { (cd "$(dirname "$0")/../.." && python3 -c 'import json,sys; m=json.load(open("theme/cosmic-theme.json"))[sys.argv[1]]; print(m["builder"]["window_hint"][1:].upper(), m["look"]["active_hint"])' "$1"); }
+    for M in Dark Light; do
+        m=$(echo "$M" | tr '[:upper:]' '[:lower:]')
+        read -r hint width <<EOF_HINT
+$(hint_of "$m")
+EOF_HINT
+        if [ -z "$hint" ]; then echo "FAIL: no $m window_hint in theme/cosmic-theme.json"; fail=1; continue; fi
+        check "COSMIC $M active hint is ${width} px in the neutral #$hint" \
+            "grep -qx '$width' $T.$M.Builder/v2/active_hint && grep -qi '#${hint}ff' $T.$M.Builder/v2/window_hint && grep -qx '$width' $T.$M/v2/active_hint && grep -q '^Some(' $T.$M/v2/window_hint"
+    done
 fi
 
 # --- COSMIC toolkit, compositor, panels and the Isotope layout -------------
@@ -117,7 +130,9 @@ if [ "$DESKTOP" = cosmic ]; then
     check "gsettings button-layout puts the window buttons on the left" \
         "test \"\$(gsettings get org.gnome.desktop.wm.preferences button-layout)\" = \"'close,minimize,maximize:'\""
     P=/usr/share/cosmic/com.system76.CosmicComp/v1
-    check "CosmicComp active_hint is false"    "grep -qx false $P/active_hint"
+    # The spec's fallback for tiling: a thin outline on the focused window, in
+    # the palette's neutral dim, not the accent (tools/gen-theme.py).
+    check "CosmicComp active_hint is true"     "grep -qx true $P/active_hint"
     check "CosmicComp shadows tiled windows"   "grep -q 'shadow_tiled_windows: true' $P/appearance_settings"
     L=/usr/share/cosmic-layouts/isotope
     check "the wallpaper follows light and dark (autostart entry, COSMIC only)" \

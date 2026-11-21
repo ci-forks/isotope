@@ -109,6 +109,8 @@ pub fn build(mode: &Value, dark: bool) -> Result<(ThemeBuilder, Theme)> {
             "bg_color" => b.bg_color = Some(srgba(s)?),
             "primary_container_bg" => b.primary_container_bg = Some(srgba(s)?),
             "secondary_container_bg" => b.secondary_container_bg = Some(srgba(s)?),
+            // The focused window's outline in cosmic-comp (None: the accent).
+            "window_hint" => b.window_hint = Some(srgb(s)?),
             _ => return Err(format!("builder: unknown key {k:?}")),
         }
     }
@@ -272,6 +274,19 @@ mod tests {
         let j = fixture();
         let (_, t) = build(&j["dark"], true).unwrap();
         assert!(t.frosted_windows && !t.frosted_maximized_apps);
+    }
+
+    #[test]
+    fn focus_hint_carried() {
+        let j = fixture();
+        for (k, d) in [("dark", true), ("light", false)] {
+            let (b, t) = build(&j[k], d).unwrap();
+            let want = j[k]["builder"]["window_hint"].as_str().unwrap();
+            assert_eq!(b.window_hint.map(to_hex).as_deref(), Some(want));
+            assert_eq!(t.window_hint.map(to_hex).as_deref(), Some(want));
+            assert_eq!(u64::from(t.active_hint), j[k]["look"]["active_hint"].as_u64().unwrap());
+            assert!(t.active_hint > 0);
+        }
     }
 
     #[test]

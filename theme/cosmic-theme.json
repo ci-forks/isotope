@@ -7,10 +7,11 @@
       "primary_container_bg": "#1d1d1a",
       "secondary_container_bg": "#2a2b25",
       "success": "#37be95",
-      "warning": "#ea8a18"
+      "warning": "#ea8a18",
+      "window_hint": "#909287"
     },
     "look": {
-      "active_hint": 0,
+      "active_hint": 2,
       "corner_radii": "Round",
       "frosted": "Medium",
       "frosted_applets": true,
@@ -59,10 +60,11 @@
       "primary_container_bg": "#ffffff",
       "secondary_container_bg": "#e9eae6",
       "success": "#167a69",
-      "warning": "#832d00"
+      "warning": "#832d00",
+      "window_hint": "#61635a"
     },
     "look": {
-      "active_hint": 0,
+      "active_hint": 2,
       "corner_radii": "Round",
       "frosted": "Medium",
       "frosted_applets": true,

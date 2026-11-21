@@ -47,6 +47,14 @@ class CosmicTheme(unittest.TestCase):
         text = gen.cosmic_theme_json(PAL)
         self.assertEqual(text, json.dumps(json.loads(text), indent=2, sort_keys=True) + "\n")
 
+    def test_focused_window_has_a_thin_neutral_hint(self):
+        # The spec's fallback: a thin outline in a neutral role, not the accent.
+        t = gen.cosmic_theme(PAL)
+        for mode, pal in (("dark", PAL["night"]), ("light", PAL["day"])):
+            self.assertIn(t[mode]["look"]["active_hint"], (1, 2))
+            self.assertEqual(t[mode]["builder"]["window_hint"], pal["dim"])
+            self.assertNotEqual(t[mode]["builder"]["window_hint"], pal["accent"])
+
     def test_mix_is_the_rounded_midpoint(self):
         self.assertEqual(gen.mix("#000000", "#010101"), "#010101")
         self.assertEqual(gen.mix("#102030", "#304050"), "#203040")

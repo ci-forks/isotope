@@ -214,6 +214,12 @@ COSMIC_THEME = "theme/cosmic-theme.json"
 # rev cosmic-settings epoch-1.11.0 pins: `frosted` is a BlurStrength variant
 # name, `gaps` is (outer, inner) u32, `active_hint` a u32 width, and
 # `corner_radii` a Roundness variant name (Round, SlightlyRound, Square).
+# active_hint: the spec's fallback. With no hint (0) the focused tiled window
+# was hard to tell from the others, so a thin outline, in the neutral
+# WINDOW_HINT role below rather than the accent.
+#
+# CosmicComp's own `active_hint` switch (rootfs-cosmic, com.system76.CosmicComp)
+# must be true for the outline to show.
 COSMIC_LOOK = {
     "frosted": "Medium",
     "frosted_windows": True,
@@ -221,10 +227,14 @@ COSMIC_LOOK = {
     "frosted_panel": True,
     "frosted_applets": True,
     "frosted_maximized_apps": False,
-    "active_hint": 0,
+    "active_hint": 2,
     "gaps": [0, 12],
     "corner_radii": "Round",
 }
+
+# The palette role of the focused window's outline (the ThemeBuilder's
+# `window_hint`, an Option<Srgb> at that rev; None would be the accent).
+WINDOW_HINT = "dim"
 
 # The Linux console's 16 colours, set from the kernel command line so the boot
 # messages, ly and the installer sit on the desktop's violet ink instead of black.
@@ -389,6 +399,7 @@ def cosmic_theme(pal):
                 "accent": p["accent"], "success": p["success"], "warning": p["warning"],
                 "destructive": p["error"], "bg_color": p["base"],
                 "primary_container_bg": p["surface"], "secondary_container_bg": p["overlay"],
+                "window_hint": p[WINDOW_HINT],
             },
             "on_accent": p["on_accent"],
             "look": dict(COSMIC_LOOK),
