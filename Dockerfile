@@ -5196,8 +5196,12 @@ COPY rootfs-cosmic/ /
 COPY --from=isotope-applets /cosmic/ /
 # The Isotope panel defaults live once, in the Isotope layout (the Layout page
 # installs that dir into a user's config); the system defaults are a copy of
-# it, so the two cannot drift. test/look/check-look.sh diffs them.
-RUN cp -a /usr/share/cosmic-layouts/isotope/com.system76.CosmicPanel* /usr/share/cosmic/
+# it, so the two cannot drift. No RUN: this stage has no shell. Each COPY
+# below is one config dir of the layout (a new one needs a line here);
+# test/look/check-look.sh diffs them against the layout.
+COPY rootfs-cosmic/usr/share/cosmic-layouts/isotope/com.system76.CosmicPanel /usr/share/cosmic/com.system76.CosmicPanel
+COPY rootfs-cosmic/usr/share/cosmic-layouts/isotope/com.system76.CosmicPanel.Panel /usr/share/cosmic/com.system76.CosmicPanel.Panel
+COPY rootfs-cosmic/usr/share/cosmic-layouts/isotope/com.system76.CosmicPanel.Dock /usr/share/cosmic/com.system76.CosmicPanel.Dock
 COPY --from=cosmic-theme /cosmic-theme/ /
 COPY --from=isotope-wallpapers-blur /isotope-wallpapers-blur/ /
 
