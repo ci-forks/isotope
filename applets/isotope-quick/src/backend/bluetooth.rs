@@ -116,12 +116,15 @@ pub fn subscription() -> Subscription<Msg> {
     })
 }
 
-/// Powers every adapter on or off.
-pub async fn set_bt(on: bool) {
+/// Powers every adapter on or off. When BlueZ refuses (rfkill), what to
+/// show instead: the state read back, or, when that fails too, the toggle
+/// undone. The watcher does not report it, since for it nothing changed.
+pub async fn set_bt(on: bool) -> Option<Msg> {
+    let conn = zbus::Connection::system().await;
     let res = async {
-        let conn = zbus::Connection::system().await?;
-        for path in adapters(&conn).await? {
-            let props = zbus::fdo::PropertiesProxy::builder(&conn)
+        let conn = conn.as_ref().map_err(Clone::clone)?;
+        for path in adapters(conn).await? {
+            let props = zbus::fdo::PropertiesProxy::builder(conn)
                 .destination(BLUEZ)?
                 .path(path)?
                 .build()
@@ -132,9 +135,17 @@ pub async fn set_bt(on: bool) {
         }
         zbus::Result::Ok(())
     };
-    if let Err(err) = res.await {
-        tracing::error!("cannot turn Bluetooth {}: {err}", if on { "on" } else { "off" });
-    }
+    let err = res.await.err()?;
+    tracing::error!("cannot turn Bluetooth {}: {err}", if on { "on" } else { "off" });
+    let read = async {
+        let conn = conn.as_ref().map_err(Clone::clone)?;
+        let om = ObjectManagerProxy::builder(conn).destination(BLUEZ)?.path("/")?.build().await?;
+        zbus::Result::Ok(summarize(&objects(om.get_managed_objects().await?)))
+    };
+    Some(match read.await {
+        Ok((powered, device)) => Msg::BtChanged(powered, device),
+        Err(_) => Msg::BtSetFailed(on),
+    })
 }
 
 #[cfg(test)]

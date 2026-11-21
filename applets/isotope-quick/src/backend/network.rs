@@ -4,7 +4,7 @@
 
 use cosmic::iced::{Subscription, stream};
 use futures::{SinkExt, StreamExt, channel::mpsc::Sender};
-use zbus::zvariant::OwnedObjectPath;
+use zbus::{MatchRule, MessageStream, zvariant::OwnedObjectPath};
 
 use crate::state::Msg;
 
@@ -38,6 +38,9 @@ trait ActiveConnection {
     #[zbus(property)]
     fn state(&self) -> zbus::Result<u32>;
 }
+
+const NM: &str = "org.freedesktop.NetworkManager";
+const ACTIVE: &str = "org.freedesktop.NetworkManager.Connection.Active";
 
 /// NM_ACTIVE_CONNECTION_STATE_ACTIVATED.
 const ACTIVATED: u32 = 2;
@@ -81,16 +84,25 @@ async fn read(conn: &zbus::Connection, nm: &NetworkManagerProxy<'_>) -> zbus::Re
 async fn watch(tx: &mut Sender<Msg>) -> zbus::Result<()> {
     let conn = zbus::Connection::system().await?;
     let nm = NetworkManagerProxy::new(&conn).await?;
+    // An active connection's own changes too: a Wi-Fi network that comes up
+    // while a wired one is already up changes neither the list nor the
+    // global state, only that connection's State.
+    let active = MatchRule::builder()
+        .msg_type(zbus::message::Type::Signal)
+        .sender(NM)?
+        .interface("org.freedesktop.DBus.Properties")?
+        .member("PropertiesChanged")?
+        .arg(0, ACTIVE)?
+        .build();
     let mut changes = futures::stream_select!(
         nm.receive_wireless_enabled_changed().await.map(|_| ()),
         nm.receive_active_connections_changed().await.map(|_| ()),
         nm.receive_state_changed().await.map(|_| ()),
+        MessageStream::for_match_rule(active, &conn, Some(16)).await?.map(|_| ()),
     );
     let mut last = None;
     loop {
-        let (enabled, active) = read(&conn, &nm).await?;
-        let (name, wired) = summarize(&active);
-        let now = (enabled, name, wired);
+        let now = current(&conn, &nm).await?;
         if last.as_ref() != Some(&now) {
             let _ = tx.send(Msg::WifiChanged(now.0, now.1.clone())).await;
             let _ = tx.send(Msg::WiredChanged(now.2)).await;
@@ -100,6 +112,16 @@ async fn watch(tx: &mut Sender<Msg>) -> zbus::Result<()> {
             return Ok(());
         }
     }
+}
+
+/// Wi-Fi on, the network's name, a wired connection up.
+async fn current(
+    conn: &zbus::Connection,
+    nm: &NetworkManagerProxy<'_>,
+) -> zbus::Result<(bool, Option<String>, bool)> {
+    let (enabled, active) = read(conn, nm).await?;
+    let (name, wired) = summarize(&active);
+    Ok((enabled, name, wired))
 }
 
 pub fn subscription() -> Subscription<Msg> {
@@ -116,14 +138,29 @@ pub fn subscription() -> Subscription<Msg> {
 }
 
 /// Turns Wi-Fi on or off (polkit lets the active local session do it).
-pub async fn set_wifi(on: bool) {
-    let res = async {
+/// When NetworkManager refuses (rfkill, polkit), what to show instead: the
+/// state read back, or, when that fails too, the toggle undone. The watcher
+/// does not report it, since for it nothing changed.
+pub async fn set_wifi(on: bool) -> Option<Msg> {
+    let conn = async {
         let conn = zbus::Connection::system().await?;
-        NetworkManagerProxy::new(&conn).await?.set_wireless_enabled(on).await
-    };
-    if let Err(err) = res.await {
-        tracing::error!("cannot turn Wi-Fi {}: {err}", if on { "on" } else { "off" });
+        let nm = NetworkManagerProxy::new(&conn).await?;
+        zbus::Result::Ok((conn, nm))
     }
+    .await;
+    let err = match &conn {
+        Ok((_, nm)) => nm.set_wireless_enabled(on).await.err()?,
+        Err(err) => err.clone(),
+    };
+    tracing::error!("cannot turn Wi-Fi {}: {err}", if on { "on" } else { "off" });
+    let read = match &conn {
+        Ok((conn, nm)) => current(conn, nm).await.ok(),
+        Err(_) => None,
+    };
+    Some(match read {
+        Some((enabled, name, _)) => Msg::WifiChanged(enabled, name),
+        None => Msg::WifiSetFailed(on),
+    })
 }
 
 #[cfg(test)]

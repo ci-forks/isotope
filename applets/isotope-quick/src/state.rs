@@ -7,7 +7,18 @@
 //!   the popup follows; they never return an effect, so a backend's own
 //!   change cannot echo back to it;
 //! - the person's actions (`*Toggled`, `Brightness`, `Volume`,
-//!   `OpenDetail`): the popup changes at once and returns what to do.
+//!   `OpenDetail`): the popup changes at once and returns what to do;
+//! - `*SetFailed`: a backend could not carry out a toggle and could not read
+//!   the system back either, so the toggle goes back to what it was.
+//!
+//! A report of the brightness or the volume that arrives while the person
+//! is moving that slider ([`HOLD`] after their last move) carries a value
+//! from before the move and would make the handle jump back: it is dropped.
+
+use std::time::{Duration, Instant};
+
+/// How long a slider ignores the system's reports after the person moved it.
+pub const HOLD: Duration = Duration::from_millis(150);
 
 /// A setting that is on or off, with what it shows when on (the network
 /// name, the connected device).
@@ -35,6 +46,9 @@ pub struct State {
     /// The default output's volume, 0 to 1; `None` when there is none.
     pub volume: Option<f32>,
     pub muted: bool,
+    /// When the person last moved the brightness or the volume slider.
+    pub brightness_moved: Option<Instant>,
+    pub volume_moved: Option<Instant>,
 }
 
 /// What a row, or a button of the bottom row, opens.
@@ -85,6 +99,10 @@ pub enum Msg {
     // The person's actions.
     WifiToggled,
     BtToggled,
+    /// Setting Wi-Fi to this failed, and so did reading it back.
+    WifiSetFailed(bool),
+    /// Setting Bluetooth to this failed, and so did reading it back.
+    BtSetFailed(bool),
     DarkToggled,
     DndToggled,
     Brightness(f32),
@@ -115,6 +133,15 @@ fn unit(v: f32) -> f32 {
 }
 
 pub fn update(s: &mut State, m: Msg) -> Vec<Effect> {
+    update_at(s, m, Instant::now())
+}
+
+fn held(moved: Option<Instant>, now: Instant) -> bool {
+    moved.is_some_and(|t| now.saturating_duration_since(t) < HOLD)
+}
+
+/// [`update`] at a given time, which the sliders' hold depends on.
+pub fn update_at(s: &mut State, m: Msg, now: Instant) -> Vec<Effect> {
     match m {
         Msg::WifiChanged(on, name) => s.wifi = toggle(on, name),
         Msg::BtChanged(on, name) => s.bt = toggle(on, name),
@@ -122,10 +149,27 @@ pub fn update(s: &mut State, m: Msg) -> Vec<Effect> {
         Msg::LayoutChanged(layout) => s.layout = layout,
         Msg::DarkChanged(dark) => s.dark = dark,
         Msg::DndChanged(dnd) => s.dnd = dnd,
-        Msg::BrightnessChanged(b) => s.brightness = b.map(unit),
+        // A slider that goes away (no backlight, no output) is never held.
+        Msg::BrightnessChanged(b) => {
+            if b.is_none() || !held(s.brightness_moved, now) {
+                s.brightness = b.map(unit);
+            }
+        }
         Msg::VolumeChanged(v, muted) => {
-            s.volume = v.map(unit);
-            s.muted = muted;
+            if v.is_none() || !held(s.volume_moved, now) {
+                s.volume = v.map(unit);
+                s.muted = muted;
+            }
+        }
+        Msg::WifiSetFailed(tried) => {
+            if s.wifi.on == tried {
+                s.wifi = toggle(!tried, None);
+            }
+        }
+        Msg::BtSetFailed(tried) => {
+            if s.bt.on == tried {
+                s.bt = toggle(!tried, None);
+            }
         }
         Msg::WifiToggled => {
             s.wifi = toggle(!s.wifi.on, None);
@@ -147,6 +191,7 @@ pub fn update(s: &mut State, m: Msg) -> Vec<Effect> {
             if s.brightness.is_some() {
                 let b = unit(b);
                 s.brightness = Some(b);
+                s.brightness_moved = Some(now);
                 return vec![Effect::SetBrightness(b)];
             }
         }
@@ -154,6 +199,7 @@ pub fn update(s: &mut State, m: Msg) -> Vec<Effect> {
             if s.volume.is_some() {
                 let v = unit(v);
                 s.volume = Some(v);
+                s.volume_moved = Some(now);
                 s.muted = false;
                 return vec![Effect::SetVolume(v)];
             }
@@ -252,8 +298,8 @@ mod tests {
         assert!(!s.muted);
         assert_eq!(update(&mut s, Msg::Volume(-0.2)), vec![Effect::SetVolume(0.0)]);
         assert_eq!(s.volume, Some(0.0));
-        // An over-amplified output is shown full.
-        update(&mut s, Msg::VolumeChanged(Some(1.5), false));
+        // An over-amplified output is shown full (a report after the hold).
+        update_at(&mut s, Msg::VolumeChanged(Some(1.5), false), Instant::now() + HOLD);
         assert_eq!(s.volume, Some(1.0));
         // No output: nothing to set.
         update(&mut s, Msg::VolumeChanged(None, false));
@@ -284,6 +330,47 @@ mod tests {
         update(&mut s, Msg::WifiChanged(true, Some("home-5G".into())));
         assert_eq!(update(&mut s, Msg::WifiToggled), vec![Effect::SetWifi(false)]);
         assert_eq!(s.wifi, Toggle { on: false, value: None });
+    }
+
+    #[test]
+    fn a_failed_toggle_goes_back() {
+        let mut s = State::default();
+        update(&mut s, Msg::WifiChanged(true, Some("home-5G".into())));
+        assert_eq!(update(&mut s, Msg::WifiToggled), vec![Effect::SetWifi(false)]);
+        assert!(!s.wifi.on);
+        // rfkill or polkit said no, and NetworkManager could not be read.
+        assert_eq!(update(&mut s, Msg::WifiSetFailed(false)), vec![]);
+        assert_eq!(s.wifi, Toggle { on: true, value: None });
+        // A failure that a newer report already settled changes nothing.
+        update(&mut s, Msg::WifiChanged(false, None));
+        update(&mut s, Msg::WifiSetFailed(true));
+        assert!(!s.wifi.on);
+
+        assert_eq!(update(&mut s, Msg::BtToggled), vec![Effect::SetBt(true)]);
+        update(&mut s, Msg::BtSetFailed(true));
+        assert_eq!(s.bt, Toggle { on: false, value: None });
+    }
+
+    #[test]
+    fn reports_do_not_move_a_slider_being_dragged() {
+        let t = Instant::now();
+        let mut s = State::default();
+        update_at(&mut s, Msg::BrightnessChanged(Some(0.2)), t);
+        update_at(&mut s, Msg::VolumeChanged(Some(0.2), false), t);
+        update_at(&mut s, Msg::Brightness(0.6), t);
+        update_at(&mut s, Msg::Volume(0.6), t);
+        // The system's older values, during the drag: dropped.
+        update_at(&mut s, Msg::BrightnessChanged(Some(0.3)), t + HOLD / 2);
+        update_at(&mut s, Msg::VolumeChanged(Some(0.3), true), t + HOLD / 2);
+        assert_eq!((s.brightness, s.volume, s.muted), (Some(0.6), Some(0.6), false));
+        // After the hold the system is followed again (the volume keys).
+        update_at(&mut s, Msg::BrightnessChanged(Some(0.7)), t + HOLD);
+        update_at(&mut s, Msg::VolumeChanged(Some(0.7), true), t + HOLD);
+        assert_eq!((s.brightness, s.volume, s.muted), (Some(0.7), Some(0.7), true));
+        // An output that goes away is followed at once.
+        update_at(&mut s, Msg::Volume(0.5), t + HOLD);
+        update_at(&mut s, Msg::VolumeChanged(None, false), t + HOLD);
+        assert_eq!(s.volume, None);
     }
 
     #[test]

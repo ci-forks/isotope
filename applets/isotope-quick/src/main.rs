@@ -97,12 +97,10 @@ impl Quick {
         for effect in effects {
             match effect {
                 Effect::SetWifi(on) => tasks.push(cosmic::task::future(async move {
-                    network::set_wifi(on).await;
-                    Message::Ignore
+                    network::set_wifi(on).await.map_or(Message::Ignore, Message::State)
                 })),
                 Effect::SetBt(on) => tasks.push(cosmic::task::future(async move {
-                    bluetooth::set_bt(on).await;
-                    Message::Ignore
+                    bluetooth::set_bt(on).await.map_or(Message::Ignore, Message::State)
                 })),
                 Effect::SetDark(dark) => mode::set_dark(dark),
                 Effect::SetDnd(on) => dnd::set_dnd(on),
@@ -629,22 +627,25 @@ fn slider_block<'a>(
     .into()
 }
 
-/// The glyph on a pill: dark, on the light fill, as in the mock.
+/// The glyph on a pill: the popup's background colour, on a fill that is its
+/// text colour, so the two swap between dark and light (at night the mock's
+/// dark glyph on a light pill).
 fn glyph_dark<'a>(svg: &'static [u8]) -> Element<'a, Message> {
     widget::icon(icon::from_svg_bytes(svg).symbolic(true))
-        .class(theme::Svg::Custom(Rc::new(|_| iced::widget::svg::Style {
-            color: Some(Color::from_rgb8(0x3a, 0x3b, 0x33)),
+        .class(theme::Svg::Custom(Rc::new(|theme| iced::widget::svg::Style {
+            color: Some(theme.cosmic().background(theme.transparent).base.with_alpha(1.0).into()),
         })))
         .width(Length::Fixed(16.0))
         .height(Length::Fixed(16.0))
         .into()
 }
 
-/// The pill: a light fill up to the value over the neutral track, its round
-/// end being the handle.
+/// The pill: the popup's text colour, a little see-through as in the mock,
+/// up to the value over the neutral track, its round end being the handle.
+/// Light at night, dark by day.
 fn pill_style(theme: &cosmic::Theme) -> iced::widget::slider::Style {
     let c = theme.cosmic();
-    let fill = Color::from_rgba8(0xff, 0xff, 0xfa, 0.88);
+    let fill: Color = c.background(theme.transparent).on.with_alpha(0.88).into();
     let radius = (PILL / 2.0).into();
     iced::widget::slider::Style {
         rail: iced::widget::slider::Rail {
