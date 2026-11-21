@@ -105,6 +105,47 @@ server installs only server images and a desktop never installs one
 (`Classify` in update/policy.go); `isotope switch` refuses on a server.
 `test/server/check-server.sh` checks a built image.
 
+## The Isotope look
+
+Every colour starts in `theme/palette.toml` (roles: base, text, accent,
+dim, ..., with `day.*` copies). `tools/gen-theme.py` writes the palette
+into every config that has colours, including `theme/cosmic-theme.json`
+(COSMIC's theme overlay, from `COSMIC_LOOK` in the script) and the
+login screen's two marks. After a palette change, run it, commit the
+result, and rebuild. CI runs `--check` and fails on drift or on a
+contrast floor.
+
+On COSMIC, `tools/isotope-cosmic-theme` (Rust, the `cosmic-theme` stage)
+puts the overlay on libcosmic's own `ThemeBuilder` and writes the dark
+and light themes and `Mode` (dark) under `/usr/share/cosmic`. So COSMIC
+computes the derived colours itself. Do not hand-edit the theme entries
+in the image. Users who already have a theme keep it. To get the new
+look they choose Reset to default in COSMIC Settings > Appearance.
+
+`patches/cosmic/` holds Isotope's changes to COSMIC sources:
+`<repo>/*.patch` per repo and `libcosmic/*.patch` for every libcosmic
+checkout. `tools/cosmic-build.sh` applies them. Its README lists the
+libcosmic revisions each component pins. A new COSMIC epoch must re-check
+that table and the patches against the new revisions.
+
+`applets/` is a cargo workspace of Isotope's own panel applets:
+`isotope-mark` (the mark that opens the Isotope menu) and
+`isotope-quick` (quick settings). It is built by `cosmic-build.sh` in
+directory mode, so the libcosmic patches apply to it. Its `Cargo.lock`
+must stay on the libcosmic revision that cosmic-applets pins (see the
+comment in `applets/Cargo.toml`). The panel layout is
+`rootfs-cosmic/usr/share/cosmic-layouts/isotope`, which is also the
+system default. Isotope Welcome applies it as "Isotope".
+
+The icon theme is Conflux, installed whole from its pinned upstream
+commit in the `icon-themes` stage, with its GPL licence in
+`/usr/share/licenses/conflux`. Do not copy its SVGs into the tree.
+`theme/conflux-links.txt` adds aliases for app IDs that Conflux names
+differently. `theme/conflux-missing.txt` lists the apps that have no
+fitting icon. A dock or first-run app in neither list fails
+`test/look/check-look.sh`. CI runs that script on every image and it
+checks the whole look in a built image.
+
 ## The shortcut sheet is generated
 
 `isotope-help` shows `rootfs-<variant>/usr/share/isotope/shortcuts.txt`, which
