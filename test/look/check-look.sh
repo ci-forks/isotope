@@ -124,7 +124,7 @@ if [ "$DESKTOP" = cosmic ]; then
         "grep -qx 'Exec=isotope wallpaper-follow' /etc/xdg/autostart/isotope-wallpaper.desktop && grep -qx 'OnlyShowIn=COSMIC;' /etc/xdg/autostart/isotope-wallpaper.desktop && isotope help | grep -q wallpaper-follow"
     check "the Isotope layout has an icon and a name" "test -s $L/icon.png && grep -q '^name en=\"Isotope\"' $L/layout.kdl"
     check "the system panel defaults are the Isotope layout's (no drift)" \
-        "set -- $L/com.system76.CosmicPanel*; test -d \$1 && for d in \"\$@\"; do diff -r \$d /usr/share/cosmic/\$(basename \$d) || exit 1; done"
+        "set -- $L/com.system76.CosmicPanel*; test -d \$1 && for d in \"\$@\"; do o=/usr/share/cosmic/\$(basename \$d); test -d \$o || exit 1; a=\$(cd \$d && find . -type f -exec sha256sum {} + | sort); b=\$(cd \$o && find . -type f -exec sha256sum {} + | sort); test -n \"\$a\" && test \"\$a\" = \"\$b\" || exit 1; done"
     check "the Isotope layout is listed first (lowest id)" \
         "own=\$(sed -n 's/^id //p' $L/layout.kdl); test -n \"\$own\"; for f in /usr/share/cosmic-layouts/*/layout.kdl; do [ \$f = $L/layout.kdl ] && continue; o=\$(sed -n 's/^id //p' \$f); [ \"\$own\" -lt \"\$o\" ] || exit 1; done; test \$(ls -d /usr/share/cosmic-layouts/*/ | wc -l) -gt 1"
 fi
