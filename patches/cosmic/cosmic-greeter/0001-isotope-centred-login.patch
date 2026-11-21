@@ -35,6 +35,20 @@ text and icons take the theme's colour on its background; the glass is that
 background colour, translucent, with a hairline edge, so the greeter follows
 the system theme like the desktop does.
 
+The fallback: for an output the user has no wallpaper for, and for every
+output before a user is chosen (or with no users), the greeter showed its
+built-in picture, res/background.jpg (COSMIC's nebula). A user who has never
+logged in has no cosmic-bg state, and the daemon's only fallback,
+/var/cache/systemd/home/<user>/login-background (systemd-homed), is listed
+under no output name, so it never matched. The greeter now shows the system
+default wallpaper instead: the `source` of
+/usr/share/cosmic/com.system76.CosmicBackground/v1/all (Isotope's night
+picture), the day picture under a light theme as on the desktop, through the
+same soft-copy rule (background::fallback_background, read by
+App::load_fallback_background at start and when the selected user's theme
+mode changes). Common::fallback_scrim says whether that picture needs the
+scrim; the built-in picture keeps it when the default cannot be read.
+
 New string: `other-users` in i18n/en (other languages fall back to it).
 
 Why: Isotope's look (docs/superpowers/specs/2026-11-20-isotope-look-design.md,
@@ -60,7 +74,7 @@ diff -ruN a/i18n/en/cosmic_greeter.ftl b/i18n/en/cosmic_greeter.ftl
 diff -ruN a/src/common.rs b/src/common.rs
 --- a/src/common.rs
 +++ b/src/common.rs
-@@ -73,6 +73,11 @@
+@@ -73,6 +73,15 @@
      pub text_input_ids: HashMap<String, widget::Id>,
      pub time: crate::time::Time,
      pub window_size: HashMap<SurfaceId, Size>,
@@ -69,19 +83,24 @@ diff -ruN a/src/common.rs b/src/common.rs
 +    pub background_rule: Option<fn(&std::path::Path) -> (std::path::PathBuf, bool)>,
 +    /// Isotope: the surfaces whose picture is shown under the scrim.
 +    pub surface_scrims: HashSet<SurfaceId>,
++    /// Isotope: whether `fallback_background` is shown under the scrim. The
++    /// greeter replaces the built-in picture with the system default
++    /// wallpaper's soft copy, which needs none.
++    pub fallback_scrim: bool,
  }
  
  #[derive(Clone, Debug)]
-@@ -144,6 +149,8 @@
+@@ -144,6 +153,9 @@
              rectangle_tracker: None,
              rectangles: HashMap::new(),
              include_menu: false,
 +            background_rule: None,
 +            surface_scrims: HashSet::new(),
++            fallback_scrim: true,
          };
          (
              app,
-@@ -170,10 +177,45 @@
+@@ -170,10 +182,45 @@
                  if wallpaper_output_name == output_name {
                      match wallpaper_source {
                          BgSource::Path(path) => {
@@ -132,7 +151,7 @@ diff -ruN a/src/common.rs b/src/common.rs
 diff -ruN a/src/greeter/background.rs b/src/greeter/background.rs
 --- a/src/greeter/background.rs
 +++ b/src/greeter/background.rs
-@@ -0,0 +1,117 @@
+@@ -0,0 +1,241 @@
 +// SPDX-License-Identifier: GPL-3.0-only
 +
 +//! Isotope: the picture behind the login screen.
@@ -182,9 +201,133 @@ diff -ruN a/src/greeter/background.rs b/src/greeter/background.rs
 +    (wallpaper.to_path_buf(), true)
 +}
 +
++/// Isotope's system-wide cosmic-bg default (the `all` entry). A user who has
++/// never logged in has no cosmic-bg state, so the greeter shows this one.
++pub const SYSTEM_BACKGROUND_CONFIG: &str = "/usr/share/cosmic/com.system76.CosmicBackground/v1/all";
++
++/// The picture a cosmic-bg config entry names: its `source: Path("...")`.
++/// A colour source, or text that is not an entry, gives `None`.
++pub fn config_source(entry: &str) -> Option<PathBuf> {
++    let rest = &entry[entry.find("source:")? + "source:".len()..];
++    let rest = rest.trim_start().strip_prefix("Path")?.trim_start();
++    let rest = rest.strip_prefix('(')?.trim_start().strip_prefix('"')?;
++    let mut path = String::new();
++    let mut chars = rest.chars();
++    loop {
++        match chars.next()? {
++            '"' => break,
++            '\\' => match chars.next()? {
++                c @ ('"' | '\\') => path.push(c),
++                _ => return None,
++            },
++            c => path.push(c),
++        }
++    }
++    (!path.is_empty()).then(|| PathBuf::from(path))
++}
++
++/// The wallpaper for a user without one of their own (and before a user is
++/// chosen): the system default. When that is one of Isotope's two desktop
++/// wallpapers, the one that matches the theme, as `isotope wallpaper-follow`
++/// does on the desktop: night under a dark theme, day under a light one.
++pub fn default_wallpaper(system_default: Option<&Path>, is_dark: bool) -> Option<PathBuf> {
++    let source = system_default?;
++    let dir = Path::new(ISOTOPE_WALLPAPER_DIR);
++    let [night, day] = ISOTOPE_WALLPAPERS;
++    if source == dir.join(night) || source == dir.join(day) {
++        return Some(dir.join(if is_dark { night } else { day }));
++    }
++    Some(source.to_path_buf())
++}
++
++/// The fallback background: the picture to show, and whether it gets the
++/// scrim, for the system default config's text (`None` when it cannot be
++/// read). `None` means there is no system default; the greeter then keeps its
++/// built-in picture under the scrim.
++pub fn fallback_background(config: Option<&str>, is_dark: bool) -> Option<(PathBuf, bool)> {
++    let source = config.and_then(config_source);
++    default_wallpaper(source.as_deref(), is_dark).map(|p| greeter_background(&p))
++}
++
 +#[cfg(test)]
 +mod tests {
 +    use super::*;
++
++    /// rootfs-cosmic/usr/share/cosmic/com.system76.CosmicBackground/v1/all
++    const ISOTOPE_ALL: &str = r#"(
++    output: "all",
++    source: Path("/usr/share/backgrounds/isotope/isotope-desktop-night.png"),
++    filter_by_theme: true,
++    rotation_frequency: 3600,
++    filter_method: Lanczos,
++    scaling_mode: Zoom,
++    sampling_method: Alphanumeric,
++)
++"#;
++
++    #[test]
++    fn the_system_config_names_the_night_wallpaper() {
++        assert_eq!(config_source(ISOTOPE_ALL), Some(PathBuf::from(NIGHT)));
++        assert_eq!(
++            config_source(r#"(output:"all",source:Path( "/a \"b\".png" ))"#),
++            Some(PathBuf::from(r#"/a "b".png"#))
++        );
++    }
++
++    #[test]
++    fn a_colour_or_broken_config_names_no_picture() {
++        assert_eq!(
++            config_source(r#"(output: "all", source: Color(Single((0.0, 0.0, 0.0))))"#),
++            None
++        );
++        assert_eq!(config_source(""), None);
++        assert_eq!(config_source(r#"(source: Path("/unterminated"#), None);
++        assert_eq!(config_source(r#"(source: Path(""))"#), None);
++    }
++
++    #[test]
++    fn a_user_without_a_wallpaper_gets_the_system_default_blurred() {
++        assert_eq!(
++            fallback_background(Some(ISOTOPE_ALL), true),
++            (Some((
++                PathBuf::from("/usr/share/backgrounds/isotope/isotope-desktop-night-blur.png"),
++                false
++            )))
++        );
++    }
++
++    #[test]
++    fn the_default_follows_a_light_theme_to_the_day_picture() {
++        assert_eq!(
++            fallback_background(Some(ISOTOPE_ALL), false),
++            Some((
++                PathBuf::from("/usr/share/backgrounds/isotope/isotope-desktop-day-blur.png"),
++                false
++            ))
++        );
++        assert_eq!(
++            default_wallpaper(Some(Path::new(DAY)), true),
++            Some(PathBuf::from(NIGHT))
++        );
++    }
++
++    #[test]
++    fn another_system_default_is_kept_under_the_scrim() {
++        let other = "(source: Path(\"/usr/share/backgrounds/cosmic/orion.jpg\"))";
++        assert_eq!(
++            fallback_background(Some(other), false),
++            Some((
++                PathBuf::from("/usr/share/backgrounds/cosmic/orion.jpg"),
++                true
++            ))
++        );
++    }
++
++    #[test]
++    fn no_system_default_means_no_fallback_picture() {
++        assert_eq!(fallback_background(None, true), None);
++        assert_eq!(fallback_background(Some("garbage"), true), None);
++    }
 +
 +    const NIGHT: &str = "/usr/share/backgrounds/isotope/isotope-desktop-night.png";
 +    const DAY: &str = "/usr/share/backgrounds/isotope/isotope-desktop-day.png";
@@ -270,7 +413,16 @@ diff -ruN a/src/greeter.rs b/src/greeter.rs
  use crate::fl;
  
  static USERNAME_ID: LazyLock<iced::id::Id> = LazyLock::new(|| iced::id::Id::new("username-id"));
-@@ -493,534 +494,600 @@
+@@ -439,6 +440,8 @@
+     heartbeat_handle: Option<cosmic::iced::task::Handle>,
+     entering_name: bool,
+     theme_builder: cosmic_theme::ThemeBuilder,
++    /// Isotope: the theme mode `common.fallback_background` was loaded for.
++    fallback_is_dark: Option<bool>,
+     surface_id_pairs: Vec<(window::Id, window::Id)>,
+ 
+     randr_list: Option<cosmic_randr_shell::List>,
+@@ -493,534 +496,600 @@
          .discard()
      }
  
@@ -488,7 +640,8 @@ diff -ruN a/src/greeter.rs b/src/greeter.rs
 +        }
 +        let dropdown_menu = |items: Vec<_>| {
 +            let item_cnt = items.len();
-+
+ 
+-                user_button = user_button.popup(items);
 +            let items = widget::menu::menu_column::MenuColumn::with_children(items);
 +            let items = if item_cnt > 7 {
 +                Element::from(
@@ -517,8 +670,7 @@ diff -ruN a/src/greeter.rs b/src/greeter.rs
 +                    }
 +                }))
 +                .width(Length::Fixed(240.0));
- 
--                user_button = user_button.popup(items);
++
 +            if let Some(t) = self.common.rectangle_tracker.as_ref() {
 +                Element::from(t.container((id, true), menu))
 +            } else {
@@ -561,7 +713,7 @@ diff -ruN a/src/greeter.rs b/src/greeter.rs
 +                icon_color: Some(on),
 +                text_color: Some(on),
 +                ..Default::default()
-             }
++            }
 +        }
 +        fn glass_class() -> theme::Button {
 +            theme::Button::Custom {
@@ -569,7 +721,7 @@ diff -ruN a/src/greeter.rs b/src/greeter.rs
 +                disabled: Box::new(|theme| glass(theme, 0.2, false)),
 +                hovered: Box::new(|focused, theme| glass(theme, 0.55, focused)),
 +                pressed: Box::new(|focused, theme| glass(theme, 0.7, focused)),
-+            }
+             }
 +        }
 +        // A round glass button with its label under it.
 +        fn glass_action<'a>(
@@ -1141,13 +1293,13 @@ diff -ruN a/src/greeter.rs b/src/greeter.rs
 -                column = column.push(widget::text(""));
 +            SocketState::NotSet => {
 +                column = column.push(widget::text("GREETD_SOCK variable not set"));
-+            }
+             }
 +            SocketState::Error(err) => {
 +                column = column.push(widget::text(format!(
 +                    "Failed to open GREETD_SOCK: {:?}",
 +                    err
 +                )))
-             }
++            }
 +        }
  
 -            id_container(
@@ -1351,7 +1503,79 @@ diff -ruN a/src/greeter.rs b/src/greeter.rs
  
          // TODO make these opaque?
          let popover = widget::popover(menu).modal(true);
-@@ -1145,6 +1212,8 @@
+@@ -1077,6 +1146,50 @@
+         }
+     }
+ 
++    /// Isotope: the picture for an output the user has no wallpaper for (a
++    /// user who has never logged in has no cosmic-bg state) and for every
++    /// output before a user is chosen: the system default wallpaper
++    /// (src/greeter/background.rs), soft, for the theme's mode. The built-in
++    /// picture stays, under the scrim, when there is none or it cannot be read.
++    fn load_fallback_background(&mut self, is_dark: bool) {
++        if self.fallback_is_dark == Some(is_dark) {
++            return;
++        }
++        self.fallback_is_dark = Some(is_dark);
++        let config = std::fs::read_to_string(background::SYSTEM_BACKGROUND_CONFIG)
++            .inspect_err(|err| {
++                tracing::warn!(
++                    "failed to read {}: {}",
++                    background::SYSTEM_BACKGROUND_CONFIG,
++                    err
++                )
++            })
++            .ok();
++        let Some((shown, scrim)) = background::fallback_background(config.as_deref(), is_dark)
++        else {
++            return;
++        };
++        // The sharp picture, under the scrim, when the soft copy is missing.
++        let source = background::config_source(config.as_deref().unwrap_or_default())
++            .and_then(|p| background::default_wallpaper(Some(&p), is_dark));
++        let loaded = std::fs::read(&shown)
++            .map(|bytes| (bytes, scrim))
++            .or_else(|err| {
++                tracing::warn!("failed to read {:?}: {}", shown, err);
++                match source {
++                    Some(source) if source != shown => std::fs::read(&source).map(|b| (b, true)),
++                    _ => Err(err),
++                }
++            });
++        match loaded {
++            Ok((bytes, scrim)) => {
++                self.common.fallback_background = widget::image::Handle::from_bytes(bytes);
++                self.common.fallback_scrim = scrim;
++            }
++            Err(err) => tracing::warn!("no fallback background: {}", err),
++        }
++    }
++
+     fn update_user_data(&mut self) -> Task<Message> {
+         let user_data = match self
+             .selected_username
+@@ -1094,6 +1207,10 @@
+         if let Some(builder) = &user_data.theme_builder_opt {
+             self.theme_builder = builder.clone();
+         }
++        let is_dark = user_data
++            .theme_builder_opt
++            .as_ref()
++            .is_none_or(|builder| builder.palette.is_dark());
+ 
+         let mut tasks = Vec::new();
+         self.accessibility.magnifier = user_data.accessibility_zoom.start_on_login;
+@@ -1111,6 +1228,9 @@
+             ))));
+         }
+ 
++        // Isotope: the picture for outputs this user has no wallpaper for.
++        self.load_fallback_background(is_dark);
++
+         Task::batch(tasks)
+     }
+ }
+@@ -1145,6 +1265,8 @@
          common.on_output_event = Some(Box::new(|output_event, output| {
              Message::OutputEvent(output_event, output)
          }));
@@ -1360,7 +1584,34 @@ diff -ruN a/src/greeter.rs b/src/greeter.rs
          tasks.push(common_task);
  
          //TODO: use full_name?
-@@ -1291,21 +1360,14 @@
+@@ -1194,7 +1316,7 @@
+             ..Default::default()
+         };
+ 
+-        let app = App {
++        let mut app = App {
+             common,
+             flags,
+             greetd_sender: None,
+@@ -1209,10 +1331,17 @@
+             entering_name: false,
+             accessibility,
+             theme_builder: Default::default(),
++            fallback_is_dark: None,
+             randr_list: None,
+             surface_id_pairs: Vec::new(),
+             authenticating: false,
+         };
++        // Isotope: the picture before a user is chosen, and with no users.
++        let is_dark = data_idx
++            .and_then(|i| app.flags.user_datas.get(i))
++            .and_then(|user_data| user_data.theme_builder_opt.as_ref())
++            .is_none_or(|builder| builder.palette.is_dark());
++        app.load_fallback_background(is_dark);
+         (app, Task::batch(tasks))
+     }
+ 
+@@ -1291,21 +1420,14 @@
                          let unwrapped_size = size
                              .map(|s| (s.0.unwrap_or(1920), s.1.unwrap_or(1080)))
                              .unwrap_or((1920, 1080));
@@ -1388,7 +1639,7 @@ diff -ruN a/src/greeter.rs b/src/greeter.rs
                          self.common
                              .subsurface_rects
                              .insert(output.clone(), Rectangle::new(loc, sub_size));
-@@ -1372,7 +1434,13 @@
+@@ -1372,7 +1494,13 @@
                          match self.common.surface_ids.remove(&output) {
                              Some(surface_id) => {
                                  self.common.surface_images.remove(&surface_id);
@@ -1402,7 +1653,7 @@ diff -ruN a/src/greeter.rs b/src/greeter.rs
                                  if let Some(n) = self.common.surface_names.remove(&surface_id) {
                                      self.common.text_input_ids.remove(&n);
                                  }
-@@ -1915,12 +1983,9 @@
+@@ -1915,12 +2043,9 @@
                      tracing::error!("Failed to find subsurface menu id");
                      return Task::none();
                  };
@@ -1418,7 +1669,7 @@ diff -ruN a/src/greeter.rs b/src/greeter.rs
              }
          }
          Task::none()
-@@ -1938,11 +2003,34 @@
+@@ -1938,11 +2063,37 @@
              .surface_images
              .get(&surface_id)
              .unwrap_or(&self.common.fallback_background);
@@ -1430,10 +1681,13 @@ diff -ruN a/src/greeter.rs b/src/greeter.rs
 -            .into()
 +            .height(Length::Fill);
 +        // Isotope: a picture without a soft copy (not one of Isotope's
-+        // wallpapers, or none at all) gets a scrim of the theme's background
++        // wallpapers, or the built-in one) gets a scrim of the theme's background
 +        // colour, so the clock and the password field read on it.
-+        let scrim = !self.common.surface_images.contains_key(&surface_id)
-+            || self.common.surface_scrims.contains(&surface_id);
++        let scrim = if self.common.surface_images.contains_key(&surface_id) {
++            self.common.surface_scrims.contains(&surface_id)
++        } else {
++            self.common.fallback_scrim
++        };
 +        if !scrim {
 +            return image.into();
 +        }
@@ -1456,7 +1710,7 @@ diff -ruN a/src/greeter.rs b/src/greeter.rs
      }
  
      fn subscription(&self) -> Subscription<Self::Message> {
-@@ -1961,6 +2049,50 @@
+@@ -1961,6 +2112,50 @@
      }
  }
  

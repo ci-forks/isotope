@@ -212,6 +212,12 @@ if [ "$DESKTOP" = cosmic ]; then
     # marks and the soft wallpapers.
     check "cosmic-greeter is the patched, centred one (names both marks and -blur.png)" \
         "grep -qa greeter-mark.svg /usr/bin/cosmic-greeter && grep -qa greeter-mark-day.svg /usr/bin/cosmic-greeter && grep -qa -- -blur.png /usr/bin/cosmic-greeter"
+    # A user with no wallpaper of their own (never logged in) and the screen
+    # before a user is chosen get the system default, not COSMIC's nebula:
+    # the greeter reads cosmic-bg's system "all" entry, which names a picture
+    # the image has.
+    check "cosmic-greeter falls back to the system default wallpaper, which exists" \
+        "grep -qa /usr/share/cosmic/com.system76.CosmicBackground/v1/all /usr/bin/cosmic-greeter && p=\$(sed -n 's/.*source: Path(\"\\(.*\\)\").*/\\1/p' /usr/share/cosmic/com.system76.CosmicBackground/v1/all) && test -s \"\$p\" && test -s \"\${p%.png}-blur.png\""
 fi
 
 # --- The palette reaches every themed file (repository check) --------------
