@@ -150,7 +150,8 @@ pub fn subscription() -> Subscription<Event> {
                 if let Ok(Ok(mut events)) = c.recv_events().await {
                     let mut sinks = Sinks::default();
                     while let Some(event) = events.next().await {
-                        let Ok(event) = event else { continue };
+                        // Leave the stream, so the outer loop reconnects after RETRY.
+                        let Ok(event) = event else { break };
                         if sinks.apply(event) {
                             *default_sink.lock().unwrap() = sinks.default_sink();
                             let (volume, mute) = sinks.shown();
