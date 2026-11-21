@@ -48,6 +48,13 @@ without the user changing anything.
 - Restyling ly (the text login of sway, i3 and niri).
 - Left window buttons in apps that do not use the patched libcosmic or GTK's
   `button-layout` (Flathub builds of COSMIC apps, Qt and Electron apps).
+- Left window buttons and the Conflux icon theme in Flatpak GTK apps on COSMIC.
+  Known limitation: they read those keys through the Settings portal, and
+  xdg-desktop-portal-cosmic serves only `org.freedesktop.appearance` and
+  text-scaling-factor, not `button-layout` or `icon-theme`. The gsettings
+  override stays as the default for host GTK apps. Installing
+  xdg-desktop-portal-gtk as a second Settings backend would fix it, and is
+  left for later.
 - Migrating users who have changed their COSMIC theme: their changes win.
 
 ## Anti-goals (a failure even if it works)
@@ -265,9 +272,9 @@ start, as round neutral buttons that show their glyph on hover, as in the
 mock (`.lights`). It is controlled by a new CosmicTk key (for example
 `window_controls_left`, true in Isotope's defaults), so a user can put them
 back on the right; COSMIC Settings does not show the key, which is
-acceptable. GTK apps (including Flatpak ones through the portal) follow
-`button-layout='close,minimize,maximize:'` in the Isotope gsettings
-override. Because each COSMIC app pins its own libcosmic revision, the
+acceptable. The Isotope gsettings override sets
+`button-layout='close,minimize,maximize:'` as the default for host GTK apps
+(see the known limitation in Non-goals). Because each COSMIC app pins its own libcosmic revision, the
 build must patch the revision each app's Cargo.lock names (a cargo
 `[patch]` to a patched checkout of that revision, or patching the cargo git
 checkout before the build); a build where an app is not patched fails the
@@ -335,7 +342,7 @@ login and the desktop match.
   own; list those in the PR.
 - Default everywhere: CosmicTk `icon_theme` (COSMIC; its settings daemon
   mirrors it to gsettings), `icon-theme='Conflux'` in the Isotope gsettings
-  override (GTK and Flatpak apps through the portal), and the icon settings
+  override (host GTK apps; Flatpak apps on COSMIC do not get it, see Non-goals), and the icon settings
   of the tiling variants' own programs that draw icons (fuzzel, mako, dunst,
   waybar, Noctalia, as applicable).
 - License: GPL-3.0 icons, shipped as data; record it where the image lists
@@ -353,8 +360,11 @@ cosmic-initial-setup, nothing else installs COSMIC theme presets.
 System defaults apply to every key a user has not changed. A user whose
 ~/.config/cosmic already holds computed theme keys (for example from
 changing the accent in Settings) keeps those keys. The release notes say how
-to get the new look: COSMIC Settings, Appearance, Reset to default (or remove
-`~/.config/cosmic/com.system76.CosmicTheme*`).
+to get the new look: remove `~/.config/cosmic/com.system76.CosmicTheme.Dark*`
+and `~/.config/cosmic/com.system76.CosmicTheme.Light*` (the theme and builder
+directories), then log out and in. COSMIC Settings, Appearance, Reset to
+default does not do this: it writes libcosmic's stock theme into the user's
+config, so it replaces the Isotope look with stock COSMIC.
 
 ## How it is checked
 
