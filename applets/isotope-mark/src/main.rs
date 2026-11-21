@@ -38,6 +38,7 @@ static AUTOSIZE_MAIN_ID: LazyLock<Id> = LazyLock::new(|| Id::new("autosize-main"
 fn main() -> iced::Result {
     tracing_subscriber::fmt::init();
     let _ = tracing_log::LogTracer::init();
+    focus::close_privileged_socket_on_exec();
     cosmic::applet::run::<Mark>(())
 }
 

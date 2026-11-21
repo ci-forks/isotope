@@ -109,9 +109,27 @@ sctk::delegate_registry!(AppData);
 cctk::delegate_toplevel_info!(AppData);
 
 /// Sets close-on-exec on `socket`, keeping its other fd flags.
-fn close_on_exec(socket: &UnixStream) -> rustix::io::Result<()> {
+fn close_on_exec(socket: &impl std::os::fd::AsFd) -> rustix::io::Result<()> {
     let flags = rustix::io::fcntl_getfd(socket)?;
     rustix::io::fcntl_setfd(socket, flags | rustix::io::FdFlags::CLOEXEC)
+}
+
+/// Sets close-on-exec on the privileged socket, if the panel passed one. Called
+/// from main() before the applet runs, so no click can spawn isotope-menu with
+/// the fd still inheritable; `watch` sets it again, which does no harm.
+pub fn close_privileged_socket_on_exec() {
+    let Some(fd) = std::env::var("X_PRIVILEGED_WAYLAND_SOCKET")
+        .ok()
+        .and_then(|fd| fd.parse::<RawFd>().ok())
+    else {
+        return;
+    };
+    // SAFETY: cosmic-panel passes this fd to the applet and keeps it open; the
+    // borrow ends with this call.
+    let fd = unsafe { std::os::fd::BorrowedFd::borrow_raw(fd) };
+    if let Err(err) = close_on_exec(&fd) {
+        tracing::warn!("cannot set close-on-exec on the privileged socket: {err}");
+    }
 }
 
 /// Follows the focused window until the connection or the applet goes away.
