@@ -555,10 +555,16 @@ fn toggle_row<'a>(
 
 /// A toggle tile (Dark style, Do not disturb): the whole tile toggles.
 fn tile<'a>(svg: &'static [u8], title: &'static str, on: bool, toggle: Msg) -> Element<'a, Message> {
+    // The tile is as tall as its half of the network block; its circle and
+    // label sit in its middle, as in the mock (`.one`: align-items centre).
+    // A button puts its content at the top, so a container centres it.
     button::custom(
-        row![circle(svg, on), text::body(title).font(cosmic::font::semibold())]
-            .spacing(8)
-            .align_y(Alignment::Center),
+        container(
+            row![circle(svg, on), text::body(title).font(cosmic::font::semibold())]
+                .spacing(8)
+                .align_y(Alignment::Center),
+        )
+        .center_y(Length::Fill),
     )
     .padding(10)
     .width(Length::Fill)
@@ -596,7 +602,15 @@ fn tile_style(theme: &cosmic::Theme, hover: bool) -> button::Style {
 }
 
 /// A labelled slider block: a pill filled up to the value, with the glyph
-/// inside at its start (a mute button for Sound).
+/// inside at its start (a mute button for Sound), as the mock's `.sl`.
+///
+/// The fill is drawn here, not by iced's slider: the slider insets its rail by
+/// half a handle at each end and draws its handle over the fill, which showed
+/// as a pale knob on the see-through fill. Here the slider only takes the
+/// input (its rail and handle are transparent) and the fill is a pill from
+/// the left end to just past the handle's centre:
+/// `PILL + value * (width - PILL)`, made of a round left cap, a square middle
+/// and a round right cap that do not overlap, so the alpha stays even.
 fn slider_block<'a>(
     label: &'static str,
     svg: &'static [u8],
@@ -604,14 +618,46 @@ fn slider_block<'a>(
     on_glyph: Option<Msg>,
     on_change: fn(f32) -> Message,
 ) -> Element<'a, Message> {
-    let pill = slider(0.0..=1.0, value, on_change)
+    let input = slider(0.0..=1.0, value, on_change)
         .step(0.01_f32)
         .height(PILL)
+        .handle_width(PILL)
         .class(theme::iced::Slider::Custom {
-            active: Rc::new(pill_style),
-            hovered: Rc::new(pill_style),
-            dragging: Rc::new(pill_style),
+            active: Rc::new(invisible_slider),
+            hovered: Rc::new(invisible_slider),
+            dragging: Rc::new(invisible_slider),
         });
+    let (filled, rest) = fill_portions(value);
+    let half = |left: bool| {
+        container(widget::space::horizontal())
+            .width(Length::Fixed(PILL / 2.0))
+            .height(Length::Fixed(PILL))
+            .class(theme::Container::custom(move |theme| pill_fill(theme, Some(left))))
+    };
+    let mut fill = row![half(true)];
+    if filled > 0 {
+        fill = fill.push(
+            container(widget::space::horizontal())
+                .width(Length::FillPortion(filled))
+                .height(Length::Fixed(PILL))
+                .class(theme::Container::custom(|theme| pill_fill(theme, None))),
+        );
+    }
+    fill = fill.push(half(false));
+    if rest > 0 {
+        fill = fill.push(widget::space::horizontal().width(Length::FillPortion(rest)));
+    }
+    let track = container(widget::space::horizontal())
+        .width(Length::Fill)
+        .height(Length::Fixed(PILL))
+        .class(theme::Container::custom(|theme| {
+            let c = theme.cosmic();
+            iced::widget::container::Style {
+                background: Some(Background::Color(c.background(theme.transparent).component.hover.into())),
+                border: Border { radius: (PILL / 2.0).into(), ..Default::default() },
+                ..Default::default()
+            }
+        }));
     let mark: Element<'a, Message> = match on_glyph {
         Some(msg) => plain_button(container(glyph_dark(svg)).center(Length::Fixed(PILL)))
             .on_press(Message::State(msg))
@@ -621,7 +667,7 @@ fn slider_block<'a>(
     block(
         column![
             text::body(label).font(cosmic::font::semibold()),
-            stack![pill, container(mark).padding([0, 2])],
+            stack![track, fill, input, mark],
         ]
         .spacing(6),
     )
@@ -629,45 +675,80 @@ fn slider_block<'a>(
     .into()
 }
 
+/// How a pill's width beyond its two round caps splits between the fill and
+/// the rest, in thousandths, for a value in 0..=1 (clamped). The fill ends at
+/// the slider's handle centre plus half a pill, so it follows the pointer.
+fn fill_portions(value: f32) -> (u16, u16) {
+    let filled = (value.clamp(0.0, 1.0) * 1000.0).round() as u16;
+    (filled, 1000 - filled)
+}
+
 /// The glyph on a pill: the popup's background colour, on a fill that is its
 /// text colour, so the two swap between dark and light (at night the mock's
-/// dark glyph on a light pill).
+/// dark glyph on a light pill). 18 px, the size of the toggles' glyphs: at
+/// 16 px the speaker's waves were too thin to read.
 fn glyph_dark<'a>(svg: &'static [u8]) -> Element<'a, Message> {
     widget::icon(icon::from_svg_bytes(svg).symbolic(true))
         .class(theme::Svg::Custom(Rc::new(|theme| iced::widget::svg::Style {
             color: Some(theme.cosmic().background(theme.transparent).base.with_alpha(1.0).into()),
         })))
-        .width(Length::Fixed(16.0))
-        .height(Length::Fixed(16.0))
+        .width(Length::Fixed(f32::from(GLYPH)))
+        .height(Length::Fixed(f32::from(GLYPH)))
         .into()
 }
 
-/// The pill: the popup's text colour, a little see-through as in the mock,
-/// up to the value over the neutral track, its round end being the handle.
-/// Light at night, dark by day.
-fn pill_style(theme: &cosmic::Theme) -> iced::widget::slider::Style {
+/// A piece of the pill's fill: the popup's text colour, a little see-through
+/// as in the mock (light at night, dark by day). `Some(true)` is the round
+/// left cap, `Some(false)` the round right cap, `None` the square middle.
+fn pill_fill(theme: &cosmic::Theme, cap: Option<bool>) -> iced::widget::container::Style {
     let c = theme.cosmic();
-    let fill: Color = c.background(theme.transparent).on.with_alpha(0.88).into();
-    let radius = (PILL / 2.0).into();
+    let r = PILL / 2.0;
+    let radius = match cap {
+        Some(true) => iced::border::Radius { top_left: r, bottom_left: r, top_right: 0.0, bottom_right: 0.0 },
+        Some(false) => iced::border::Radius { top_left: 0.0, bottom_left: 0.0, top_right: r, bottom_right: r },
+        None => 0.0.into(),
+    };
+    iced::widget::container::Style {
+        background: Some(Background::Color(c.background(theme.transparent).on.with_alpha(0.88).into())),
+        border: Border { radius, ..Default::default() },
+        ..Default::default()
+    }
+}
+
+/// The slider takes the input only: nothing of it is drawn.
+fn invisible_slider(_theme: &cosmic::Theme) -> iced::widget::slider::Style {
+    let none = Background::Color(Color::TRANSPARENT);
     iced::widget::slider::Style {
         rail: iced::widget::slider::Rail {
-            backgrounds: (
-                Background::Color(fill),
-                Background::Color(c.background(theme.transparent).component.hover.into()),
-            ),
+            backgrounds: (none, none),
             width: PILL,
-            border: Border { radius, ..Default::default() },
+            border: Border::default(),
         },
         handle: iced::widget::slider::Handle {
             shape: iced::widget::slider::HandleShape::Rectangle {
                 width: PILL as u16,
                 height: PILL as u16,
-                border_radius: radius,
+                border_radius: (PILL / 2.0).into(),
             },
-            background: Background::Color(fill),
+            background: none,
             border_width: 0.0,
             border_color: Color::TRANSPARENT,
         },
         breakpoint: iced::widget::slider::Breakpoint { color: Color::TRANSPARENT },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::fill_portions;
+
+    #[test]
+    fn the_fill_splits_the_pill_by_the_value() {
+        assert_eq!(fill_portions(0.0), (0, 1000));
+        assert_eq!(fill_portions(0.62), (620, 380));
+        assert_eq!(fill_portions(1.0), (1000, 0));
+        // Out of range (an output above 100%) is shown full, never wider.
+        assert_eq!(fill_portions(1.4), (1000, 0));
+        assert_eq!(fill_portions(-0.1), (0, 1000));
     }
 }
